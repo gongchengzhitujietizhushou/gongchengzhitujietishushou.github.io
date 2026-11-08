@@ -16,6 +16,7 @@ const LLM = (() => {
   const LIB_URL = 'js/vendor/litellm.umd.js';
   const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
   const SENSENOVA_BASE = 'https://token.sensenova.cn/v1';
+  const DEEPSEEK_BASE = 'https://api.deepseek.com';
 
   // 模型列表 (按服务商分组)。图像识别请选择支持视觉的模型。
   // baseUrl / provider 就是交给 litellm-js 的接入信息。
@@ -23,6 +24,12 @@ const LLM = (() => {
     { group: '商汤 SenseTime', provider: 'openai', baseUrl: SENSENOVA_BASE,
       items: [
         { value: 'sensenova-6.8-flash-lite', label: 'SenseNova 6.8 Flash Lite' },
+        { value: 'sensenova-6.8-flash', label: 'SenseNova 6.8 Flash' },
+      ] },
+    { group: 'DeepSeek', provider: 'openai', baseUrl: DEEPSEEK_BASE,
+      items: [
+        { value: 'deepseek-flash', label: 'DeepSeek-V4.1-Flash-1017' },
+        { value: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro-0813' },
       ] },
   ];
 
@@ -55,6 +62,7 @@ const LLM = (() => {
 
     const m = String(model || '').toLowerCase();
     if (m.indexOf('sensenova') === 0) return { kind: 'openai', base: SENSENOVA_BASE };
+    if (m.indexOf('deepseek') === 0) return { kind: 'openai', base: DEEPSEEK_BASE };
     return { kind: 'openai', base: SENSENOVA_BASE };
   }
 

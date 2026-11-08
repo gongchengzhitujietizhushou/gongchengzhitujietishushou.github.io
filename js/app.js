@@ -492,6 +492,10 @@
           text: greetingText(LLM.isConfigured(llmSettings())),
           time: Date.now(),
         }];
+        // 未配置 API Key 时, 默认弹出设置对话框引导配置
+        if (!LLM.isConfigured(llmSettings())) {
+          showSettings.value = true;
+        }
       });
 
       return {

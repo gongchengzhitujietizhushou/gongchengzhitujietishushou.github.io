@@ -218,6 +218,10 @@ input, textarea { font-family: inherit; }
 
 .bubble img.msg-img {
   max-width: 100%;
+  max-height: 420px;        /* 保持宽高比, 避免过大的原图撑爆气泡 */
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: 8px;
   display: block;
 }
