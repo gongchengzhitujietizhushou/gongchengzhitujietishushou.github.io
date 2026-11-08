@@ -14,33 +14,31 @@
 const LLM = (() => {
 
   const LIB_URL = 'js/vendor/litellm.umd.js';
-  const OPENAI_BASE = 'https://api.openai.com/v1';
   const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
+  const SENSENOVA_BASE = 'https://token.sensenova.cn/v1';
 
-  // 常见模型 (按服务商分组)。图像识别请选择支持视觉的模型。
+  // 模型列表 (按服务商分组)。图像识别请选择支持视觉的模型。
   // baseUrl / provider 就是交给 litellm-js 的接入信息。
   const MODELS = [
-    { group: 'OpenAI', provider: 'openai', baseUrl: OPENAI_BASE,
-      items: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'] },
-    { group: '通义千问 (DashScope)', provider: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      items: ['qwen-vl-max', 'qwen-vl-plus', 'qwen2.5-vl-72b-instruct'] },
-    { group: '智谱 GLM', provider: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-      items: ['glm-4v-plus', 'glm-4v', 'glm-4.5v'] },
-    { group: 'Google Gemini', provider: 'openai', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      items: ['gemini-2.0-flash', 'gemini-1.5-pro'] },
-    { group: 'Anthropic Claude', provider: 'anthropic', baseUrl: ANTHROPIC_BASE,
-      items: ['claude-3-5-sonnet-latest', 'claude-sonnet-4-20250514'] },
-    { group: '月之暗面 Kimi', provider: 'openai', baseUrl: 'https://api.moonshot.cn/v1',
-      items: ['moonshot-v1-8k-vision-preview'] },
-    { group: 'DeepSeek', provider: 'openai', baseUrl: 'https://api.deepseek.com/v1',
-      items: ['deepseek-chat', 'deepseek-reasoner'] },
+    { group: '商汤 SenseTime', provider: 'openai', baseUrl: SENSENOVA_BASE,
+      items: [
+        { value: 'sensenova-6.8-flash-lite', label: 'SenseNova 6.8 Flash Lite' },
+      ] },
   ];
 
-  const DEFAULT_MODEL = MODELS[0].items[0];
+  const DEFAULT_MODEL = itemValue(MODELS[0].items[0]);
+
+  // 模型项可以是字符串 (内置简单项) 或 { value, label } (带显示名)
+  function itemValue(item) {
+    return (item && typeof item === 'object') ? item.value : item;
+  }
+  function itemLabel(item) {
+    return (item && typeof item === 'object' && item.label) ? item.label : item;
+  }
 
   function findModel(model) {
     for (const g of MODELS) {
-      if (g.items.indexOf(model) >= 0) return g;
+      if (g.items.some(function (it) { return itemValue(it) === model; })) return g;
     }
     return null;
   }
@@ -56,16 +54,8 @@ const LLM = (() => {
     if (known) return { kind: known.provider, base: known.baseUrl };
 
     const m = String(model || '').toLowerCase();
-    if (m.indexOf('claude') === 0) return { kind: 'anthropic', base: ANTHROPIC_BASE };
-    if (m.indexOf('gemini') === 0)
-      return { kind: 'openai', base: 'https://generativelanguage.googleapis.com/v1beta/openai' };
-    if (m.indexOf('qwen') === 0)
-      return { kind: 'openai', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1' };
-    if (m.indexOf('glm') === 0) return { kind: 'openai', base: 'https://open.bigmodel.cn/api/paas/v4' };
-    if (m.indexOf('moonshot') === 0 || m.indexOf('kimi') === 0)
-      return { kind: 'openai', base: 'https://api.moonshot.cn/v1' };
-    if (m.indexOf('deepseek') === 0) return { kind: 'openai', base: 'https://api.deepseek.com/v1' };
-    return { kind: 'openai', base: OPENAI_BASE };
+    if (m.indexOf('sensenova') === 0) return { kind: 'openai', base: SENSENOVA_BASE };
+    return { kind: 'openai', base: SENSENOVA_BASE };
   }
 
   function isConfigured(s) {
@@ -80,7 +70,7 @@ const LLM = (() => {
 
     const kind = (settings && settings.llmService === 'anthropic') ? 'anthropic' : 'openai';
     const base = String((settings && settings.llmBaseUrl) || '').trim() ||
-      (kind === 'anthropic' ? ANTHROPIC_BASE : OPENAI_BASE);
+      (kind === 'anthropic' ? ANTHROPIC_BASE : SENSENOVA_BASE);
     return { kind: kind, base: base };
   }
 
@@ -338,7 +328,7 @@ const LLM = (() => {
 
   return {
     MODELS, DEFAULT_MODEL, isKnownModel, providerFor, resolveConfig, isConfigured,
-    analyzeDrawing, toParams, ask, chat, normalize,
+    analyzeDrawing, toParams, ask, chat, normalize, itemValue, itemLabel,
   };
 })();
 

@@ -142,7 +142,7 @@
             <label>LLM 模型</label>
             <select v-model="settings.llmModel">
               <optgroup v-for="g in llmModels" :key="g.group" :label="g.group">
-                <option v-for="m in g.items" :key="m" :value="m">{{ m }}</option>
+                <option v-for="m in g.items" :key="m.value || m" :value="m.value || m">{{ m.label || m }}</option>
               </optgroup>
               <option value="__custom__">自定义模型…</option>
             </select>
