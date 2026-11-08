@@ -176,7 +176,7 @@ const Solver = (() => {
       result.status = 'partial';
       result.explanation = [
         '未能完全识别题型, 给出参数与说明。',
-        '请上传包含"主视图(矩形+三角孔口) + 左视图(圆+两条虚线弦)"的清晰图片。',
+        '请上传更清晰的工程图图片，系统会尝试识别视图与几何图元并求解。',
       ];
     }
     return result;

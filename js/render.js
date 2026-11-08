@@ -148,8 +148,8 @@ const Render = (() => {
 
     // ---- 标注
     const fs = scale * 0.30;
-    label(ctx, tx(0), ty(2 * R + 1.05 * R), '工程制图 · 求作俯视图', fs * 1.7, 'bold', '#101010', 'left');
-    label(ctx, tx(0), ty(2 * R + 0.85 * R), '圆柱上开通一个前后贯通的楔形孔 —— 俯视图出现"束腰"椭圆弧', fs * 0.95, 'normal', '#4a5563', 'left');
+    label(ctx, tx(0), ty(2 * R + 1.05 * R), '工程制图 · 求解结果', fs * 1.7, 'bold', '#101010', 'left');
+    label(ctx, tx(0), ty(2 * R + 0.85 * R), '黑色加粗部分为所求视图', fs * 0.95, 'normal', '#4a5563', 'left');
     label(ctx, tx(L / 2), ty(2 * R + 0.45 * R), '主视图', fs * 1.05, 'bold', '#4a5563');
     label(ctx, tx(LVX), ty(2 * R + 0.45 * R), '左视图', fs * 1.05, 'bold', '#4a5563');
     label(ctx, tx(0), ty(TVY + R + 0.30 * R), '俯视图', fs * 1.15, 'bold', '#1b4f80', 'left');

@@ -627,7 +627,7 @@ const Vision = (() => {
     if (front && left) {
       params.problem_type = 'cylinder_wedge_hole';
       params.confidence = 0.8;
-      params.notes.push('识别到主视图(矩形+三角孔口)与左视图(圆+两条虚线弦)。');
+      params.notes.push('识别到主视图与左视图的候选图元。');
       const R = left.R, A = left.A, W = left.W;
       if (R && A && W) {
         const Wt = Math.sqrt(R * R - A * A);

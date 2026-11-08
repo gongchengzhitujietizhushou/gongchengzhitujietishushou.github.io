@@ -44,11 +44,11 @@ const Storage = (() => {
     return _dbPromise;
   }
 
-  async function dbPut(id, blob) {
+  async function dbPut(id, value) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
-      tx.objectStore(DB_STORE).put(blob, id);
+      tx.objectStore(DB_STORE).put(value, id);
       tx.oncomplete = () => resolve();
       tx.onerror = (e) => reject(e.target.error);
     });
@@ -84,7 +84,7 @@ const Storage = (() => {
 
   // 添加一条历史
   async function addHistory(item) {
-    // item: { id, time, fileName, problemType, params, answerSummary, thumbBlob? }
+    // item: { id, time, fileName, problemType, summary, blob?, result? }
     const hist = getHistory();
     const entry = {
       id: item.id || ('h_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
@@ -93,19 +93,37 @@ const Storage = (() => {
       problemType: item.problemType || '',
       summary: item.summary || '',
       hasImage: !!item.blob,
+      hasResult: !!item.result,
     };
-    // 图片存入 IndexedDB
-    if (item.blob) {
-      try { await dbPut(entry.id, item.blob); }
-      catch (e) { entry.hasImage = false; }
+    // 结果可能来自 Vue reactive 对象(代理无法被结构化克隆), 先转成普通 JSON
+    let plainResult = null;
+    if (item.result) {
+      try { plainResult = JSON.parse(JSON.stringify(item.result)); }
+      catch (e) { plainResult = null; }
+    }
+    // 原图与求解结果（答案图/文字）一起存入 IndexedDB
+    if (item.blob || plainResult) {
+      try { await dbPut(entry.id, { blob: item.blob || null, result: plainResult }); }
+      catch (e) { entry.hasImage = false; entry.hasResult = false; }
     }
     hist.unshift(entry);
     saveHistory(hist);
     return entry;
   }
 
+  // 兼容旧记录: 旧版本 IndexedDB 里直接存的是 Blob
+  async function getHistoryRecord(id) {
+    try {
+      const v = await dbGet(id);
+      if (!v) return null;
+      if (typeof Blob !== 'undefined' && v instanceof Blob) return { blob: v, result: null };
+      return { blob: v.blob || null, result: v.result || null };
+    } catch (e) { return null; }
+  }
+
   async function getHistoryImage(id) {
-    try { return await dbGet(id); } catch (e) { return null; }
+    const rec = await getHistoryRecord(id);
+    return rec ? rec.blob : null;
   }
 
   async function removeHistory(id) {
@@ -128,14 +146,15 @@ const Storage = (() => {
 
   // ---------- 设置 ----------
   function getSettings() {
-    return lsGet(SETTINGS_KEY, { llmKey: '', llmModel: '', adCode: '' });
+    return lsGet(SETTINGS_KEY, { llmKey: '', llmModel: '', llmBaseUrl: '', llmService: 'openai' });
   }
   function saveSettings(s) {
-    lsSet(SETTINGS_KEY, Object.assign({ llmKey: '', llmModel: '', adCode: '' }, s));
+    lsSet(SETTINGS_KEY, Object.assign(
+      { llmKey: '', llmModel: '', llmBaseUrl: '', llmService: 'openai' }, s));
   }
 
   return {
-    getHistory, saveHistory, addHistory, getHistoryImage, removeHistory, clearHistory,
+    getHistory, saveHistory, addHistory, getHistoryRecord, getHistoryImage, removeHistory, clearHistory,
     getSettings, saveSettings,
   };
 })();

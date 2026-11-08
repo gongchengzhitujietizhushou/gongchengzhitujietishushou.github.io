@@ -51,8 +51,8 @@
       <main class="main">
         <div class="topbar">
           <div>
-            <div class="q-title">圆柱上开通前后贯通的楔形孔 · 求作俯视图</div>
-            <div class="q-sub">识别主视图(矩形+三角孔口)与左视图(圆+虚线弦) → 求解"束腰"俯视图</div>
+            <div class="q-title">工程制图 · 自动识别与求解</div>
+            <div class="q-sub">识别视图与几何图元 → 提取参数 → 求解并渲染答案</div>
           </div>
         </div>
 
@@ -81,7 +81,7 @@
                 <div v-if="m.processing" class="typing"><span></span><span></span><span></span></div>
                 <!-- 答案图 -->
                 <template v-if="m.answerUrl">
-                  <img class="answer-img" :src="m.answerUrl" alt="俯视图答案">
+                  <img class="answer-img" :src="m.answerUrl" alt="求解结果">
                   <div class="caption" v-if="m.caption">{{ m.caption }}</div>
                   <!-- 参数 -->
                   <div class="params-strip" v-if="m.params">
@@ -138,12 +138,28 @@
         </div>
         <div class="modal-body">
           <div class="field">
-            <label>LLM API Key (预留, 未来文字问答用)</label>
-            <input type="password" v-model="settings.llmKey" placeholder="sk-...">
+            <label>LLM 模型</label>
+            <select v-model="settings.llmModel">
+              <option value="">（不使用 LLM，仅本地识别）</option>
+              <optgroup v-for="g in llmModels" :key="g.group" :label="g.group">
+                <option v-for="m in g.items" :key="m" :value="m">{{ m }}</option>
+              </optgroup>
+              <option value="__custom__">自定义模型…</option>
+            </select>
+            <div class="custom-model" v-if="settings.llmModel === '__custom__'">
+              <input type="text" v-model="settings.llmModelCustom" placeholder="模型 ID，例如 my-vl-model">
+              <input type="text" v-model="settings.llmBaseUrl" placeholder="Base URL（可选），例如 https://api.example.com/v1">
+              <select v-model="settings.llmService">
+                <option value="openai">OpenAI 兼容接口 (/chat/completions)</option>
+                <option value="anthropic">Anthropic 接口 (/messages)</option>
+              </select>
+            </div>
+            <div class="hint">图像识别请选择支持视觉的模型；内置模型已配置服务商地址，自定义模型可填写 Base URL 与接口类型。</div>
           </div>
           <div class="field">
-            <label>LLM 模型 (预留)</label>
-            <input type="text" v-model="settings.llmModel" placeholder="例如 deepseek-chat">
+            <label>LLM API Key</label>
+            <input type="password" v-model="settings.llmKey" placeholder="sk-...">
+            <div class="hint">仅保存在本机浏览器 localStorage，由浏览器直接请求服务商。</div>
           </div>
         </div>
         <div class="modal-foot">
@@ -159,6 +175,7 @@
   <script src="js/vision.js"></script>
   <script src="js/solver.js"></script>
   <script src="js/render.js"></script>
+  <script src="js/llm.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/app.js"></script>
 </body>
