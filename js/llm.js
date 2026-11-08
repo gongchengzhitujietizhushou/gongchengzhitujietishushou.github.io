@@ -206,25 +206,29 @@ const LLM = (() => {
   }
 
   // ---------- 解析图纸 ----------
-  const SYSTEM_PROMPT = [
-    '你是工程制图（机械制图）识图与解题专家。分析用户上传的工程图图片。',
-    '只输出一个 JSON 对象，不要输出 Markdown 代码块或任何多余文字。',
-    'JSON 结构:',
-    '{',
-    '  "problem_type": "cylinder_wedge_hole" 或 "other",',
-    '  "title": "题型简述",',
-    '  "confidence": 0 到 1 的数字,',
-    '  "geometry": { "R": 100, "L": 数字, "X1": 数字, "X2": 数字, "A": 数字 },',
-    '  "analysis": "中文分步解答或说明",',
-    '  "notes": ["需要注意的点"]',
-    '}',
-    '规则:',
-    '1. 仅当题目是「轴线水平的圆柱，主视图为矩形+三角形孔口，左视图为圆+两条水平虚线弦，求俯视图（圆柱上开前后贯通楔形孔）」时，problem_type 才用 "cylinder_wedge_hole"。',
-    '2. 该题型必须给出 geometry，且使用同一比例：令 R=100；L=圆柱长度；X1=三角形尖点 x；X2=孔底 x；A=孔口半高。需满足 0<X1<X2<L 且 0<A<R。',
-    '3. 其他题型 problem_type 用 "other"，在 analysis 中说明已知视图、缺失视图、关键几何关系与求解思路；不要编造尺寸。',
-    '4. 看不清或信息不足时降低 confidence，并在 notes 中说明。',
-    '5. analysis 使用简洁中文，按步骤分行。',
-  ].join('\n');
+  // 从答案卡注册表生成题型目录, 供 LLM 判断/生成 data。
+  function cardCatalog() {
+    if (typeof AnswerCards === 'undefined' || !AnswerCards.catalogForPrompt) return '';
+    return AnswerCards.catalogForPrompt();
+  }
+
+  function systemPromptForDrawing() {
+    const catalog = cardCatalog();
+    return [
+      '你是工程制图（机械制图）识图与解题专家。分析用户上传的工程图图片。',
+      '只输出一个 JSON 对象，不要输出 Markdown 代码块或任何多余文字。',
+      '输出两种模式之一:',
+      '1) 能确定题型且能给出完整参数时:',
+      '{ "mode":"card", "category":"题型ID", "title":"题型简述", "confidence":0到1, "data":{...}, "analysis":"中文分步解答", "notes":["需要注意的点"] }',
+      '2) 不能确定题型、没有对应答案卡或参数不足时:',
+      '{ "mode":"text", "category":"other", "title":"题型简述", "confidence":0到1, "text":"中文分析", "notes":["需要注意的点"] }',
+      catalog ? ('可用答案卡题型:\n' + catalog) : '',
+      '规则:',
+      '1. 只有题型与目录中的描述一致且参数完整时才用 card；category 必须取自目录，否则用 "other"。',
+      '2. data 使用目录给出的字段名与同一比例；不要编造尺寸，看不清就降低 confidence 并用 text。',
+      '3. text/analysis 使用简洁中文，按步骤分行。',
+    ].filter(Boolean).join('\n');
+  }
 
   function parseJson(text) {
     let s = String(text || '').trim();
@@ -235,41 +239,68 @@ const LLM = (() => {
     return JSON.parse(s);
   }
 
+  // 尝试把文本解析为对象 (不是有效 JSON 时返回 null)
+  function tryParseObject(text) {
+    try {
+      const o = parseJson(text);
+      return (o && typeof o === 'object' && !Array.isArray(o)) ? o : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function num(v, d) {
     const n = Number(v);
     return Number.isFinite(n) ? n : d;
   }
 
+  // 规范化 LLM 输出: 要么是答案卡 (mode=card), 要么是纯文字 (mode=text)。
   function normalize(obj, raw) {
-    const out = {
-      problem_type: obj.problem_type || 'other',
-      title: typeof obj.title === 'string' ? obj.title : '',
-      confidence: num(obj.confidence, 0.5),
-      geometry: (obj.geometry && typeof obj.geometry === 'object') ? obj.geometry : null,
-      analysis: typeof obj.analysis === 'string' ? obj.analysis : '',
-      notes: Array.isArray(obj.notes) ? obj.notes.map(String) : [],
-      raw: raw,
+    const notes = Array.isArray(obj.notes) ? obj.notes.map(String) : [];
+    const title = typeof obj.title === 'string' ? obj.title : '';
+    const confidence = num(obj.confidence, 0.5);
+    const category = String(obj.category || obj.problem_type || 'other');
+    const analysis = typeof obj.analysis === 'string' ? obj.analysis : '';
+    const text = typeof obj.text === 'string' ? obj.text : '';
+
+    const hasCard = typeof AnswerCards !== 'undefined' &&
+      AnswerCards.has && AnswerCards.has(category);
+
+    // 旧格式 (problem_type + geometry) 或新格式 (mode=card) 都走答案卡
+    if ((obj.mode === 'card' || obj.mode == null) && hasCard) {
+      const data = obj.data || obj.geometry || null;
+      const norm = AnswerCards.normalize(category, data);
+      if (norm) {
+        return {
+          mode: 'card', category: category, title: title, confidence: confidence,
+          data: norm, analysis: analysis, notes: notes, raw: raw,
+        };
+      }
+      notes.push('LLM 给出的参数不完整，已改为文字说明。');
+    }
+
+    return {
+      mode: 'text', category: category || 'other', title: title, confidence: confidence,
+      text: text || analysis || raw, notes: notes, raw: raw,
     };
-    if (!out.analysis) out.analysis = raw;
-    return out;
   }
 
   async function analyzeDrawing(dataUrl, settings, hint) {
     const userText = '请识别并解答这张工程图。' + (hint ? ('\n用户补充说明: ' + hint) : '');
-    const raw = await chat(SYSTEM_PROMPT, userText, dataUrl, settings, 2000);
-    let obj;
-    try {
-      obj = parseJson(raw);
-    } catch (e) {
+    const raw = await chat(systemPromptForDrawing(), userText, dataUrl, settings, 2400);
+    const obj = tryParseObject(raw);
+    if (!obj) {
       throw new Error('LLM 返回的内容不是有效 JSON: ' + raw.slice(0, 160));
     }
     return normalize(obj, raw);
   }
 
-  // 把 LLM 的结构化结果转成 Solver 需要的 params
+  // 兼容旧调用: 把 LLM 结构化结果转成 Solver 需要的 params。
+  // 新架构下答案卡直接使用 res.data, 此函数仅用于兼容 / 测试。
   function toParams(res) {
-    if (!res || res.problem_type !== 'cylinder_wedge_hole' || !res.geometry) return null;
-    const g = res.geometry;
+    if (!res || res.category !== 'cylinder_wedge_hole') return null;
+    const g = res.data || res.geometry;
+    if (!g) return null;
     const R = num(g.R, 0), L = num(g.L, 0), X1 = num(g.X1, NaN), X2 = num(g.X2, NaN), A = num(g.A, 0);
     if (!(R > 0 && L > 0 && A > 0 && X2 > X1 && X1 >= 0 && X2 <= L * 1.01 && A < R)) return null;
     return {
@@ -285,14 +316,29 @@ const LLM = (() => {
   }
 
   // ---------- 文字问答 ----------
+  // 返回 { mode:'text', text } 或 { mode:'card', category, data, analysis, notes, ... }
   async function ask(question, dataUrl, settings) {
-    const sys = '你是工程制图（机械制图）助手。用简洁中文回答；涉及尺寸、投影关系时说明依据和不确定性，不要编造。';
-    return chat(sys, question, dataUrl || null, settings, 1200);
+    const sys = [
+      '你是工程制图（机械制图）助手。用简洁中文回答；涉及尺寸、投影关系时说明依据和不确定性，不要编造。',
+      '如果问题属于下面某个答案卡题型，且你能给出完整参数，只输出一个 JSON 对象:',
+      '{ "mode":"card", "category":"题型ID", "title":"...", "confidence":0到1, "data":{...}, "analysis":"...", "notes":[] }',
+      '其他问题直接用简洁中文回答，不要输出 JSON。',
+      cardCatalog() ? ('可用答案卡题型:\n' + cardCatalog()) : '',
+    ].filter(Boolean).join('\n');
+    const raw = await chat(sys, question, dataUrl || null, settings, 1600);
+    const obj = tryParseObject(raw);
+    if (obj && (obj.mode === 'card' || obj.category || obj.problem_type || obj.data)) {
+      return normalize(obj, raw);
+    }
+    return {
+      mode: 'text', category: 'other', title: '', confidence: 0,
+      text: raw, notes: [], raw: raw,
+    };
   }
 
   return {
     MODELS, DEFAULT_MODEL, isKnownModel, providerFor, resolveConfig, isConfigured,
-    analyzeDrawing, toParams, ask, chat,
+    analyzeDrawing, toParams, ask, chat, normalize,
   };
 })();
 

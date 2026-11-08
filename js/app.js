@@ -10,7 +10,42 @@
 (function () {
   const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
 
-  createApp({
+  // ---------- 答案卡宿主组件 ----------
+  // 挂载 / 销毁 AnswerCards 注册表中的卡片模块。
+  const AnswerCardView = {
+    props: { category: String, data: Object, meta: Object },
+    template: '<div class="answer-card-host"></div>',
+    mounted() { this.renderCard(); },
+    beforeUnmount() { this.destroyCard(); },
+    watch: {
+      category() { this.renderCard(); },
+      data: { deep: true, handler() { this.renderCard(); } },
+    },
+    methods: {
+      renderCard() {
+        this.destroyCard();
+        const def = (typeof AnswerCards !== 'undefined') && AnswerCards.get(this.category);
+        if (!def) {
+          this.$el.textContent = '暂不支持该题型答案卡。';
+          return;
+        }
+        try {
+          this.instance = def.mount(this.$el, this.data || {}, this.meta || {});
+        } catch (e) {
+          this.$el.textContent = '答案卡渲染失败: ' + (e && e.message ? e.message : String(e));
+        }
+      },
+      destroyCard() {
+        if (this.instance && this.instance.destroy) {
+          try { this.instance.destroy(); } catch (e) { /* ignore */ }
+        }
+        this.instance = null;
+        this.$el.innerHTML = '';
+      },
+    },
+  };
+
+  const app = createApp({
     setup() {
       // ---------- 状态 ----------
       const messages = ref([]);        // [{role:'user'|'bot', text, imageUrl?, answerUrl?, caption?, explanation?, params?, type?, time}]
@@ -114,40 +149,95 @@
           .filter(Boolean);
       }
 
+      // 一个题型是否算作"已解"(有答案卡或明确识别)
+      function isSolvedType(t) {
+        return !!t && t !== 'other' && t !== 'unrecognized';
+      }
+
+      // 从本地视觉管线 params 提取答案卡数据 (cylinder_wedge_hole)
+      function cardFromParams(params) {
+        if (!params || params.problem_type !== 'cylinder_wedge_hole' || !params.views) return null;
+        const f = params.views.front || {};
+        const l = params.views.left || {};
+        const R = Number(l.R || (f.H ? f.H / 2 : 0));
+        const L = Number(f.L || 0);
+        const X1 = Number(f.X1);
+        const X2 = Number(f.X2);
+        const A = Number(f.A != null ? f.A : l.A);
+        if (!(R > 0 && L > 0)) return null;
+        return AnswerCards.normalize('cylinder_wedge_hole', { R, L, X1, X2, A });
+      }
+
+      // 把答案卡数据写到 botMsg
+      function applyCard(botMsg, category, data, meta) {
+        const norm = AnswerCards.normalize(category, data);
+        if (!norm) return false;
+        meta = meta || {};
+        Object.assign(botMsg, {
+          processing: false,
+          mode: 'card',
+          card: {
+            category: category,
+            data: norm,
+            title: meta.title || '',
+            analysis: meta.analysis || '',
+            notes: Array.isArray(meta.notes) ? meta.notes.slice() : [],
+            confidence: meta.confidence != null ? Number(meta.confidence) : 0.8,
+          },
+          type: category,
+          status: 'solved',
+          time: Date.now(),
+        });
+        return true;
+      }
+
       // ---------- 核心: 上传并解题 ----------
       async function processImage(blob, fileName, question) {
         processing.value = true;
         try {
           // 用户消息: 显示原图
           const imgUrl = URL.createObjectURL(blob);
-          const userMsg = { role: 'user', imageUrl: imgUrl, fileName, time: Date.now() };
-          messages.value.push(userMsg);
+          messages.value.push({ role: 'user', imageUrl: imgUrl, fileName, time: Date.now() });
 
           // 处理中占位
           const botMsg = reactive({ role: 'bot', processing: true, time: Date.now() });
           messages.value.push(botMsg);
 
-          const llmConf = llmSettings();
-          const useLLM = LLM.isConfigured(llmConf);
+          const conf = llmSettings();
+          const useLLM = LLM.isConfigured(conf);
 
           // 1) 优先交给视觉模型理解图纸
           let llmRes = null, llmError = null;
           if (useLLM) {
             try {
               const dataUrl = await blobToDataUrl(blob, 1400);
-              llmRes = await LLM.analyzeDrawing(dataUrl, llmConf, question);
+              llmRes = await LLM.analyzeDrawing(dataUrl, conf, question);
             } catch (e) {
               llmError = e;
             }
           }
 
-          // 2) 决定求解参数: LLM 结构化结果; 否则回退本地视觉管线
-          let params = null;
-          if (llmRes && llmRes.problem_type === 'cylinder_wedge_hole') {
-            params = LLM.toParams(llmRes);
+          // 2) LLM 给出答案卡 -> 直接渲染
+          if (llmRes && llmRes.mode === 'card') {
+            applyCard(botMsg, llmRes.category, llmRes.data, llmRes);
           }
-          if (!params) {
-            // LLM 未配置 / 调用失败 / 未给出可用参数 → 本地识别
+          // 3) LLM 给出文字 (识别为其它/不确定) -> 展示文字
+          else if (llmRes && llmRes.mode === 'text') {
+            const parts = [];
+            if (llmRes.title) parts.push(llmRes.title);
+            if (llmRes.text) parts.push(llmRes.text);
+            if (llmRes.notes && llmRes.notes.length) parts.push('备注:\n- ' + llmRes.notes.join('\n- '));
+            Object.assign(botMsg, {
+              processing: false,
+              text: parts.join('\n\n') || '未能确定题型，请补充说明或更换更清晰的图片。',
+              type: 'other',
+              status: 'partial',
+              time: Date.now(),
+            });
+          }
+          // 4) LLM 未配置 / 调用失败 -> 本地视觉管线
+          else {
+            let params = null;
             try {
               const imageData = await loadImageData(blob);
               const pipeline = await Vision.runPipeline(imageData);
@@ -155,76 +245,44 @@
             } catch (e) {
               if (!llmError) llmError = e;
             }
-          }
 
-          // 3) 求解 + 渲染
-          let answerUrl = null, explanation = [], paramsArr = null;
-          let geo = null, problemType = 'unrecognized';
-          let solved = false;
-
-          if (params) {
-            problemType = params.problem_type || problemType;
-            const result = Solver.solve(params);
-            geo = result.geometry;
-            if (result.status === 'solved') {
-              solved = true;
-              const ansCanvas = document.createElement('canvas');
-              Render.render(result, ansCanvas, {});
-              answerUrl = ansCanvas.toDataURL('image/png');
-              explanation = llmRes ? toLines(llmRes.analysis) : [];
-              if (!explanation.length) explanation = result.explanation;
-              paramsArr = [
-                ['R', geo.R], ['L', geo.L], ['X1', geo.X1], ['X2', geo.X2],
-                ['A', geo.A], ['W', geo.W], ['K', geo.K],
-              ];
+            const cardData = cardFromParams(params);
+            if (cardData) {
+              applyCard(botMsg, 'cylinder_wedge_hole', cardData, {
+                title: '5-2 求作俯视图',
+                analysis: '',
+                notes: (params && params.notes) || [],
+                confidence: params ? params.confidence : 0.7,
+              });
             } else {
-              explanation = result.explanation;
-            }
-          }
-          if (llmRes && llmRes.problem_type) problemType = llmRes.problem_type;
-
-          // 4) 更新机器人消息
-          if (solved) {
-            const title = (llmRes && llmRes.title) ? (llmRes.title + ' · ') : '';
-            Object.assign(botMsg, {
-              processing: false,
-              answerUrl,
-              caption: title + '按识别比例重建，尺寸以原图标注为准',
-              explanation,
-              params: paramsArr,
-              type: 'cylinder_wedge_hole',
-              status: 'solved',
-              time: Date.now(),
-            });
-          } else {
-            const parts = [];
-            if (llmRes) {
-              if (llmRes.title) parts.push(llmRes.title);
-              if (llmRes.analysis) parts.push(llmRes.analysis);
-              if (llmRes.notes && llmRes.notes.length) parts.push('备注:\n- ' + llmRes.notes.join('\n- '));
-            } else {
+              const parts = [];
               if (llmError) parts.push('LLM 调用失败: ' + llmError.message + '\n已回退到本地识别。');
-              if (explanation.length) parts.push(explanation.join('\n'));
+              if (params && params.notes && params.notes.length) parts.push(params.notes.join('\n'));
               else parts.push('暂不支持该题型，或图片无法识别。');
               if (!useLLM) parts.push('提示: 在"设置"中配置 LLM 后，可分析更多题型。');
+              Object.assign(botMsg, {
+                processing: false,
+                text: parts.join('\n\n') || '暂不支持该题型，或图片无法识别。',
+                type: (params && params.problem_type) || 'unrecognized',
+                status: 'partial',
+                time: Date.now(),
+              });
             }
-            Object.assign(botMsg, {
-              processing: false,
-              text: parts.join('\n\n') || '暂不支持该题型，或图片无法识别。',
-              type: problemType,
-              status: 'partial',
-              time: Date.now(),
-            });
           }
 
           // 5) 记录历史 (原图 + 结果一起存, 回看时无需重新请求 LLM)
+          const problemType = botMsg.type || (botMsg.card ? botMsg.card.category : 'other');
+          const cardData = botMsg.card && botMsg.card.data;
+          const summary = cardData
+            ? 'R=' + cardData.R.toFixed(0) + ' L=' + cardData.L.toFixed(0) +
+              ' A=' + cardData.A.toFixed(0)
+            : String(((llmRes && (llmRes.title || llmRes.text)) ||
+                (botMsg.text || ''))).slice(0, 80);
           const entry = await Storage.addHistory({
             fileName: fileName || '上传图片',
             problemType: problemType,
-            summary: solved && geo
-              ? `R=${geo.R.toFixed(0)} L=${geo.L.toFixed(0)} A=${geo.A.toFixed(0)} W=${geo.W.toFixed(0)}`
-              : String(((llmRes && (llmRes.title || llmRes.analysis)) || (explanation[0] || ''))).slice(0, 80),
-            blob,
+            summary: summary,
+            blob: blob,
             result: {
               answerUrl: botMsg.answerUrl || null,
               caption: botMsg.caption || '',
@@ -233,6 +291,8 @@
               text: botMsg.text || '',
               type: botMsg.type || '',
               status: botMsg.status || '',
+              mode: botMsg.mode || '',
+              card: botMsg.card || null,
               time: botMsg.time,
             },
           });
@@ -280,7 +340,17 @@
         if (LLM.isConfigured(conf)) {
           try {
             const reply = await LLM.ask(text, null, conf);
-            Object.assign(botMsg, { processing: false, text: reply, time: Date.now() });
+            if (reply.mode === 'card') {
+              applyCard(botMsg, reply.category, reply.data, reply);
+            } else {
+              Object.assign(botMsg, {
+                processing: false,
+                text: reply.text,
+                type: 'other',
+                status: 'partial',
+                time: Date.now(),
+              });
+            }
           } catch (e) {
             Object.assign(botMsg, { processing: false, error: 'LLM 调用失败: ' + e.message, time: Date.now() });
           }
@@ -394,8 +464,17 @@
 
       function greetingText(configured) {
         return configured
-          ? '你好! 我是"工程制图解题助手"。\n\n请上传一张工程图图片 (PNG/JPG)，系统会先用视觉模型理解图纸，再用几何算法求解并渲染；也可以直接输入文字提问。'
+          ? '你好! 我是"工程制图解题助手"。\n\n请上传一张工程图图片 (PNG/JPG)，系统会先用视觉模型理解图纸，再用几何算法求解并渲染答案卡；也可以直接输入文字提问。'
           : '你好! 我是"工程制图解题助手"。\n\n尚未配置 LLM。请先点击右上角「⚙ 设置」选择模型并填写 API Key。\n\n未配置时只能使用本地识别（仅支持部分内置题型）；配置后可分析更多题型，并支持文字问答。';
+      }
+
+      function newSession() {
+        activeId.value = null;
+        messages.value = [{
+          role: 'bot',
+          text: greetingText(LLM.isConfigured(llmSettings())),
+          time: Date.now(),
+        }];
       }
 
       function scrollBottom() {
@@ -419,8 +498,11 @@
         messages, inputText, pendingFile, processing, history, activeId,
         showSettings, settings, llmModels, chatEl, fileInput, dragOver,
         send, onFilePicked, setFile, clearFile, onDrop, openHistory, deleteHistory,
-        clearAllHistory, openSettings, saveSettings, fmtTime,
+        clearAllHistory, openSettings, saveSettings, fmtTime, newSession, isSolvedType,
       };
     },
-  }).mount('#app');
+  });
+
+  app.component('answer-card', AnswerCardView);
+  app.mount('#app');
 })();

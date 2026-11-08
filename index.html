@@ -6,6 +6,7 @@
   <title>工程制图解题助手</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📐</text></svg>">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/acard_cylinder_wedge_hole.css">
 </head>
 <body>
   <div id="app">
@@ -19,9 +20,7 @@
           </div>
         </div>
 
-        <button class="new-btn" @click="messages = [{role:'bot', text:'请上传工程图图片开始解题。', time:Date.now()}]">
-          ＋ 新建解题
-        </button>
+        <button class="new-btn" @click="newSession">＋ 新建解题</button>
 
         <div class="history-label">历史记录</div>
         <div class="history">
@@ -34,8 +33,8 @@
               <div class="d">{{ fmtTime(item.time) }}</div>
               <div class="d" v-if="item.summary">{{ item.summary }}</div>
             </div>
-            <span class="st" :class="item.problemType==='cylinder_wedge_hole' ? 'st-solved' : 'st-failed'">
-              {{ item.problemType==='cylinder_wedge_hole' ? '已解' : '未识别' }}
+            <span class="st" :class="isSolvedType(item.problemType) ? 'st-solved' : 'st-failed'">
+              {{ isSolvedType(item.problemType) ? '已解' : '未识别' }}
             </span>
             <button class="hist-del" @click="deleteHistory(item, $event)" title="删除">✕</button>
           </div>
@@ -64,10 +63,10 @@
             <p>支持 PNG / JPG。若图片为 GIMP 的 XCF 格式, 请先在 GIMP 中"导出为 PNG"再上传。</p>
           </div>
 
-          <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
+          <div v-for="(m, i) in messages" :key="i" class="msg" :class="[m.role, {wide: !!m.card}]">
             <div class="bubble-avatar">{{ m.role === 'user' ? '👤' : '🤖' }}</div>
             <div class="body">
-              <div class="bubble">
+              <div class="bubble" :class="{ 'card-bubble': !!m.card }">
                 <!-- 用户原图 -->
                 <template v-if="m.role==='user' && m.imageUrl">
                   <img class="msg-img" :src="m.imageUrl" :alt="m.fileName">
@@ -79,8 +78,10 @@
                 </template>
                 <!-- 处理中 -->
                 <div v-if="m.processing" class="typing"><span></span><span></span><span></span></div>
-                <!-- 答案图 -->
-                <template v-if="m.answerUrl">
+                <!-- 答案卡 -->
+                <answer-card v-if="m.card" :category="m.card.category" :data="m.card.data" :meta="m.card"></answer-card>
+                <!-- 旧版答案图 (兼容历史记录) -->
+                <template v-if="!m.card && m.answerUrl">
                   <img class="answer-img" :src="m.answerUrl" alt="求解结果">
                   <div class="caption" v-if="m.caption">{{ m.caption }}</div>
                   <!-- 参数 -->
@@ -174,6 +175,8 @@
   <script src="js/vision.js"></script>
   <script src="js/solver.js"></script>
   <script src="js/render.js"></script>
+  <script src="js/acards.js"></script>
+  <script src="js/acard_cylinder_wedge_hole.js"></script>
   <script src="js/llm.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/app.js"></script>
