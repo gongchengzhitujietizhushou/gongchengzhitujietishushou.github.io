@@ -1,18 +1,28 @@
 // ============================================================
-// js/acard_solid.js
-// 共享答案卡构建器: 圆柱 + 楔形孔立体 (3D 场景 + 三视图答案)
+// js/acard_base.js
+// 答案卡基础构建器 (ACardBase)
 // ------------------------------------------------------------
-// 被 acard_top_view.js / acard_left_view.js / acard_front_view.js
-// 复用。题型按"视图构造任务"区分: 求作俯视图 / 左视图 / 主视图。
+// 供各答案卡模块 (acard_xxx.js) 复用的公共函数与共享立体卡片:
 //
-// 输入 JSON (三个题型共用):
-//   { "R": 50, "L": 130, "X1": 20, "X2": 104, "A": 40 }
-//   R 圆柱半径, L 圆柱长度, X1 孔尖距左端, X2 孔底距左端, A 孔口半高
+//   通用工具:
+//     loadScript(src)           按需加载一个 <script>
+//     loadScripts([...])        按需依次加载多个 <script>
+//     loadThree()               懒加载 three.js + OrbitControls
+//     num(v) / fmt(v)           数值解析 / 格式化
+//     fillText(root, sel, txt)  设置元素文本
+//     injectNotes(root, list)   渲染说明列表 (.acard-notes)
+//     injectAnalysis(root, txt) 展开解题过程 (.acard-analysis)
+//     buildCardShell(host, opt) 创建答案卡骨架 (head/main/panel/analysis)
+//     renderAnswerImage(result, canvas, opts) 用 Render 画答案图并返回 dataURL
 //
-// 暴露: ACardSolid.normalize(data), ACardSolid.mountSolidCard(host, data, meta, target)
-//   target ∈ { 'top' | 'left' | 'front' } 决定"所求"是哪个视图。
+//   共享立体答案卡 (圆柱 + 楔形孔, 三视图, target 决定"所求"):
+//     normalize(data)           校验并规范化 { R,L,X1,X2,A }
+//     mountSolidCard(host, data, meta, target) 挂载 3D + 三视图答案卡
+//     buildSolidScene(THREE, stage, d) 构建立体 3D 场景实例
+//     targets                   各"所求"视图文案 / Render 参数
 //
-// three.js 与 OrbitControls 在首次挂载时按需加载。
+// 目标: 让"答案卡"与"立体"解耦 —— 新题型若复用立体只调
+// mountSolidCard; 若是全新题型, 用 buildCardShell + 通用工具自行组装。
 // ============================================================
 'use strict';
 
@@ -20,6 +30,120 @@
 
   const THREE_URL = 'js/vendor/three.min.js';
   const ORBIT_URL = 'js/vendor/OrbitControls.js';
+
+  // ============================================================
+  // 一、通用工具
+  // ============================================================
+
+  // ---------- 按需加载 <script> ----------
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const found = document.querySelector('script[data-acard-src="' + src + '"]');
+      if (found) {
+        if (found.dataset.loaded === '1') { resolve(); return; }
+        found.addEventListener('load', () => resolve(), { once: true });
+        found.addEventListener('error', () => reject(new Error('加载失败: ' + src)), { once: true });
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.dataset.acardSrc = src;
+      s.onload = () => { s.dataset.loaded = '1'; resolve(); };
+      s.onerror = () => reject(new Error('加载失败: ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  function loadScripts(srcs) {
+    return srcs.reduce(function (p, s) { return p.then(() => loadScript(s)); }, Promise.resolve());
+  }
+
+  // ---------- 懒加载 three.js + OrbitControls ----------
+  let threePromise = null;
+
+  function loadThree() {
+    if (typeof window !== 'undefined' && window.THREE && window.THREE.OrbitControls) {
+      return Promise.resolve(window.THREE);
+    }
+    if (!threePromise) {
+      threePromise = loadScripts([THREE_URL, ORBIT_URL])
+        .then(() => {
+          if (!window.THREE) throw new Error('three.js 加载失败');
+          if (!window.THREE.OrbitControls) throw new Error('OrbitControls 加载失败');
+          return window.THREE;
+        })
+        .catch((e) => { threePromise = null; throw e; });
+    }
+    return threePromise;
+  }
+
+  // ---------- 数值 ----------
+  function num(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function fmt(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '-';
+    return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1);
+  }
+
+  // ---------- DOM 工具 ----------
+  function fillText(root, selector, text) {
+    const el = root.querySelector(selector);
+    if (el) el.textContent = text;
+  }
+
+  // 渲染说明列表 (去重)
+  function injectNotes(root, list) {
+    const notesEl = root.querySelector('.acard-notes');
+    if (!notesEl) return;
+    const seen = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(function (t) {
+      t = String(t || '').trim();
+      if (!t || seen[t]) return;
+      seen[t] = 1;
+      const li = document.createElement('li');
+      li.textContent = t;
+      notesEl.appendChild(li);
+    });
+  }
+
+  // 展开解题过程
+  function injectAnalysis(root, text) {
+    if (!text) return;
+    const details = root.querySelector('.acard-analysis');
+    const body = root.querySelector('.acard-analysis-body');
+    if (!details || !body) return;
+    details.hidden = false;
+    body.textContent = text;
+  }
+
+  // 创建答案卡骨架 (默认 solid 模板; 新题型可传自定义 template)
+  function buildCardShell(host, opts) {
+    opts = opts || {};
+    const root = document.createElement('div');
+    root.className = 'acard ' + (opts.className || 'acard-solid');
+    root.innerHTML = opts.template || TEMPLATE;
+    host.appendChild(root);
+    return root;
+  }
+
+  // 用 Render 画答案图, 返回 dataURL (失败返回 null)
+  function renderAnswerImage(result, canvas, opts) {
+    try {
+      Render.render(result, canvas, opts || {});
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ============================================================
+  // 二、共享立体答案卡 (圆柱 + 楔形孔)
+  // ============================================================
 
   // 各"所求"视图的文案 / Render 参数
   const TARGETS = {
@@ -49,51 +173,6 @@
     },
   };
 
-  // ---------- three.js 懒加载 ----------
-  let threePromise = null;
-
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const found = document.querySelector('script[data-acard-src="' + src + '"]');
-      if (found) {
-        if (found.dataset.loaded === '1') { resolve(); return; }
-        found.addEventListener('load', () => resolve(), { once: true });
-        found.addEventListener('error', () => reject(new Error('加载失败: ' + src)), { once: true });
-        return;
-      }
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.dataset.acardSrc = src;
-      s.onload = () => { s.dataset.loaded = '1'; resolve(); };
-      s.onerror = () => reject(new Error('加载失败: ' + src));
-      document.head.appendChild(s);
-    });
-  }
-
-  function loadThree() {
-    if (typeof window !== 'undefined' && window.THREE && window.THREE.OrbitControls) {
-      return Promise.resolve(window.THREE);
-    }
-    if (!threePromise) {
-      threePromise = loadScript(THREE_URL)
-        .then(() => loadScript(ORBIT_URL))
-        .then(() => {
-          if (!window.THREE) throw new Error('three.js 加载失败');
-          if (!window.THREE.OrbitControls) throw new Error('OrbitControls 加载失败');
-          return window.THREE;
-        })
-        .catch((e) => { threePromise = null; throw e; });
-    }
-    return threePromise;
-  }
-
-  // ---------- 数据 ----------
-  function num(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : NaN;
-  }
-
   function normalize(data) {
     if (!data || typeof data !== 'object') return null;
     const R = num(data.R);
@@ -104,12 +183,6 @@
     if (!(R > 0 && L > 0 && A > 0 && A < R)) return null;
     if (!(X1 >= 0 && X2 > X1 && X2 <= L * 1.0001)) return null;
     return { R: R, L: L, X1: X1, X2: X2, A: A };
-  }
-
-  function fmt(v) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return '-';
-    return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1);
   }
 
   function solverParams(d) {
@@ -126,7 +199,7 @@
     };
   }
 
-  // ---------- 卡片 DOM ----------
+  // ---------- 卡片 DOM (solid 默认模板) ----------
   const TEMPLATE = [
     '<div class="acard-head">',
     '  <div class="acard-heading">',
@@ -166,13 +239,8 @@
     '</details>',
   ].join('');
 
-  function fillText(root, selector, text) {
-    const el = root.querySelector(selector);
-    if (el) el.textContent = text;
-  }
-
   // ---------- 三维场景 ----------
-  function buildScene(THREE, stage, d) {
+  function buildSolidScene(THREE, stage, d) {
     const R = d.R, L = d.L, X1 = d.X1, X2 = d.X2, A = d.A;
     const K = A / (X2 - X1);
     const X0 = -L / 2;
@@ -598,7 +666,7 @@
     };
   }
 
-  // ---------- 挂载 (target: 'top' | 'left' | 'front') ----------
+  // ---------- 挂载立体答案卡 (target: 'top' | 'left' | 'front') ----------
   function mountSolidCard(host, data, meta, target) {
     const tgt = TARGETS[target] || TARGETS.top;
     const d = normalize(data);
@@ -610,10 +678,7 @@
 
     const result = Solver.solve(solverParams(d));
 
-    const root = document.createElement('div');
-    root.className = 'acard acard-solid';
-    root.innerHTML = TEMPLATE;
-    host.appendChild(root);
+    const root = buildCardShell(host, { className: 'acard-solid', template: TEMPLATE });
 
     fillText(root, '.acard-title', meta.title || tgt.title);
     fillText(root, '.acard-sub',
@@ -624,40 +689,18 @@
 
     // 答案图 (Canvas 2D 三视图, answerView 高亮所求视图)
     const shotImg = root.querySelector('.acard-shot img');
-    try {
-      const canvas = document.createElement('canvas');
-      Render.render(result, canvas, { answerView: tgt.view });
-      shotImg.src = canvas.toDataURL('image/png');
-    } catch (e) {
+    const dataUrl = renderAnswerImage(result, document.createElement('canvas'), { answerView: tgt.view });
+    if (dataUrl) {
+      shotImg.src = dataUrl;
+    } else {
       const shot = root.querySelector('.acard-shot');
-      if (shot) shot.innerHTML = '<div class="acard-error">答案图渲染失败: ' + String(e.message || e) + '</div>';
+      if (shot) shot.innerHTML = '<div class="acard-error">答案图渲染失败。</div>';
     }
 
     // 说明 (求解器说明 + LLM 备注)
-    const notesEl = root.querySelector('.acard-notes');
-    const seen = Object.create(null);
-    const notes = [];
-    (result.explanation || []).forEach(function (t) {
-      t = String(t || '').trim();
-      if (t && !seen[t]) { seen[t] = 1; notes.push(t); }
-    });
-    (Array.isArray(meta.notes) ? meta.notes : []).forEach(function (t) {
-      t = String(t || '').trim();
-      if (t && !seen[t]) { seen[t] = 1; notes.push(t); }
-    });
-    notes.forEach(function (t) {
-      const li = document.createElement('li');
-      li.textContent = t;
-      notesEl.appendChild(li);
-    });
-
+    injectNotes(root, (result.explanation || []).concat(meta.notes || []));
     // LLM 的解题过程
-    if (meta.analysis) {
-      const details = root.querySelector('.acard-analysis');
-      const body = root.querySelector('.acard-analysis-body');
-      details.hidden = false;
-      body.textContent = meta.analysis;
-    }
+    injectAnalysis(root, meta.analysis);
 
     // 三维场景 (异步加载 three.js)
     const stage = root.querySelector('.acard-stage');
@@ -666,7 +709,7 @@
 
     loadThree().then(function (THREE) {
       if (!alive) return;
-      sceneInst = buildScene(THREE, stage, d);
+      sceneInst = buildSolidScene(THREE, stage, d);
     }).catch(function (e) {
       if (!alive) return;
       stage.innerHTML = '<div class="acard-error">3D 场景加载失败: ' + String(e.message || e) + '</div>';
@@ -683,12 +726,25 @@
   }
 
   const API = {
+    // 通用工具
+    loadScript: loadScript,
+    loadScripts: loadScripts,
+    loadThree: loadThree,
+    num: num,
+    fmt: fmt,
+    fillText: fillText,
+    injectNotes: injectNotes,
+    injectAnalysis: injectAnalysis,
+    buildCardShell: buildCardShell,
+    renderAnswerImage: renderAnswerImage,
+    // 共享立体答案卡
     normalize: normalize,
     mountSolidCard: mountSolidCard,
+    buildSolidScene: buildSolidScene,
     targets: TARGETS,
   };
 
-  if (typeof window !== 'undefined') window.ACardSolid = API;
+  if (typeof window !== 'undefined') window.ACardBase = API;
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = API;

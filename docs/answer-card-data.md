@@ -10,7 +10,9 @@
 | `left_view` | 求作左视图 | `js/acard_left_view.js` | 左视图（黑、加粗） |
 | `front_view` | 求作主视图 | `js/acard_front_view.js` | 主视图（黑、加粗） |
 
-三个题型共用同一个立体（轴线水平的圆柱，开有前后贯通的楔形孔），由共享构建器 `js/acard_solid.js` 渲染 3D 场景 + 三视图答案。区别仅在于"所求"是哪一个视图，由 `Render.render(..., { answerView })` 的高亮决定。
+三个题型共用同一个立体（轴线水平的圆柱，开有前后贯通的楔形孔），由共享构建器 `js/acard_base.js`（`ACardBase`）渲染 3D 场景 + 三视图答案。区别仅在于"所求"是哪一个视图，由 `Render.render(..., { answerView })` 的高亮决定。
+
+> `js/acard_base.js` 是**答案卡基础构建器**：既包含通用工具（`loadScript` / `loadScripts` / `loadThree` / `num` / `fmt` / `fillText` / `injectNotes` / `injectAnalysis` / `buildCardShell` / `renderAnswerImage`），也包含共享立体卡（`normalize` / `mountSolidCard` / `buildSolidScene` / `targets`）。新题型可复用 `mountSolidCard`，或用 `buildCardShell` + 通用工具自行组装。
 
 > 旧历史记录中的 `cylinder_wedge_hole` 会自动映射为 `top_view`（求作俯视图）。
 
@@ -74,5 +76,5 @@
 2. 在 `index.html` 中按顺序引入该脚本（放在 `js/acards.js` 之后、`js/llm.js` 之前）。
 3. `normalize(data)` 校验并规范化输入 JSON，非法返回 `null`。
 4. `mount(host, data, meta)` 渲染答案卡，返回 `{ destroy() }` 用于卸载。
-5. 可复用共享构建器（如 `js/acard_solid.js` 的 `ACardSolid.mountSolidCard`）。
+5. 可复用共享构建器（如 `js/acard_base.js` 的 `ACardBase.mountSolidCard`）。
 6. 在本文档中补充分类条目。
