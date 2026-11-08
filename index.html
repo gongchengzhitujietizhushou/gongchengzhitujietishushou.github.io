@@ -9,9 +9,6 @@
 </head>
 <body>
   <div id="app">
-    <!-- 广告位 (顶部, 可配置) -->
-    <div class="ad-slot" id="ad-slot"></div>
-
     <div class="layout">
       <!-- 侧边栏 -->
       <aside class="sidebar">
@@ -19,7 +16,6 @@
           <span class="icon">📐</span>
           <div>
             <div class="title">工程制图解题助手</div>
-            <div class="sub">纯前端 · 浏览器本地运行</div>
           </div>
         </div>
 
@@ -57,10 +53,6 @@
           <div>
             <div class="q-title">圆柱上开通前后贯通的楔形孔 · 求作俯视图</div>
             <div class="q-sub">识别主视图(矩形+三角孔口)与左视图(圆+虚线弦) → 求解"束腰"俯视图</div>
-          </div>
-          <div class="right">
-            <span class="chip">纯前端</span>
-            <span class="chip">无登录</span>
           </div>
         </div>
 
@@ -152,10 +144,6 @@
           <div class="field">
             <label>LLM 模型 (预留)</label>
             <input type="text" v-model="settings.llmModel" placeholder="例如 deepseek-chat">
-          </div>
-          <div class="field">
-            <label>广告代码 (HTML, 显示于页面顶部)</label>
-            <textarea v-model="settings.adCode" rows="3" placeholder="<script>… adsbygoogle …</script> 或图片/链接"></textarea>
           </div>
         </div>
         <div class="modal-foot">

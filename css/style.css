@@ -33,7 +33,7 @@ html, body {
 button { font-family: inherit; cursor: pointer; }
 input, textarea { font-family: inherit; }
 
-/* ---------------- 广告位 (可配置) ---------------- */
+/* ---------------- 广告位 ---------------- */
 .ad-slot {
   min-height: 0;
   max-height: 90px;
