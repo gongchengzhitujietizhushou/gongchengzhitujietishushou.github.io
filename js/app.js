@@ -22,9 +22,14 @@
       data: { deep: true, handler() { this.renderCard(); } },
     },
     methods: {
+      // 旧题型 ID 兼容: cylinder_wedge_hole -> top_view
+      mapCat(cat) {
+        return (cat === 'cylinder_wedge_hole') ? 'top_view' : cat;
+      },
       renderCard() {
         this.destroyCard();
-        const def = (typeof AnswerCards !== 'undefined') && AnswerCards.get(this.category);
+        const category = this.mapCat(this.category);
+        const def = (typeof AnswerCards !== 'undefined') && AnswerCards.get(category);
         if (!def) {
           this.$el.textContent = '暂不支持该题型答案卡。';
           return;
@@ -154,7 +159,13 @@
         return !!t && t !== 'other' && t !== 'unrecognized';
       }
 
-      // 从本地视觉管线 params 提取答案卡数据 (cylinder_wedge_hole)
+      // 旧题型 ID -> 新题型 ID (历史记录兼容)
+      function mapCategory(cat) {
+        if (cat === 'cylinder_wedge_hole') return 'top_view';
+        return cat;
+      }
+
+      // 从本地视觉管线 params 提取答案卡数据 (圆柱+楔形孔立体, 求作俯视图)
       function cardFromParams(params) {
         if (!params || params.problem_type !== 'cylinder_wedge_hole' || !params.views) return null;
         const f = params.views.front || {};
@@ -165,26 +176,27 @@
         const X2 = Number(f.X2);
         const A = Number(f.A != null ? f.A : l.A);
         if (!(R > 0 && L > 0)) return null;
-        return AnswerCards.normalize('cylinder_wedge_hole', { R, L, X1, X2, A });
+        return AnswerCards.normalize('top_view', { R, L, X1, X2, A });
       }
 
       // 把答案卡数据写到 botMsg
       function applyCard(botMsg, category, data, meta) {
-        const norm = AnswerCards.normalize(category, data);
+        const cat = mapCategory(category);
+        const norm = AnswerCards.normalize(cat, data);
         if (!norm) return false;
         meta = meta || {};
         Object.assign(botMsg, {
           processing: false,
           mode: 'card',
           card: {
-            category: category,
+            category: cat,
             data: norm,
             title: meta.title || '',
             analysis: meta.analysis || '',
             notes: Array.isArray(meta.notes) ? meta.notes.slice() : [],
             confidence: meta.confidence != null ? Number(meta.confidence) : 0.8,
           },
-          type: category,
+          type: cat,
           status: 'solved',
           time: Date.now(),
         });
@@ -248,8 +260,8 @@
 
             const cardData = cardFromParams(params);
             if (cardData) {
-              applyCard(botMsg, 'cylinder_wedge_hole', cardData, {
-                title: '5-2 求作俯视图',
+              applyCard(botMsg, 'top_view', cardData, {
+                title: '求作俯视图',
                 analysis: '',
                 notes: (params && params.notes) || [],
                 confidence: params ? params.confidence : 0.7,
@@ -465,7 +477,7 @@
       function greetingText(configured) {
         return configured
           ? '你好! 我是"工程制图解题助手"。\n\n请上传一张工程图图片 (PNG/JPG)，系统会先用视觉模型理解图纸，再用几何算法求解并渲染答案卡；也可以直接输入文字提问。'
-          : '你好! 我是"工程制图解题助手"。\n\n尚未配置 LLM。请先点击右上角「⚙ 设置」选择模型并填写 API Key。\n\n未配置时只能使用本地识别（仅支持部分内置题型）；配置后可分析更多题型，并支持文字问答。';
+          : '你好! 我是"工程制图解题助手"。\n\n尚未配置 LLM。请先点击左下角「⚙ 设置」选择模型并填写 API Key。\n\n未配置时只能使用本地识别（仅支持部分内置题型）；配置后可分析更多题型，并支持文字问答。';
       }
 
       function newSession() {

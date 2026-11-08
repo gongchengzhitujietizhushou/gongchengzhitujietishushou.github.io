@@ -1,10 +1,10 @@
 /* ============================================================
-   css/acard_cylinder_wedge_hole.css
-   答案卡: 5-2 求作俯视图 (3D 场景 + 三视图答案)
+   css/acard_solid.css
+   答案卡: 圆柱+楔形孔立体答案卡 (3D 场景 + 三视图答案)
    ============================================================ */
 
-.acard-cwh { background: #fff; }
-.acard-cwh .acard-head {
+.acard-solid { background: #fff; }
+.acard-solid .acard-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -14,13 +14,13 @@
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
 }
-.acard-cwh .acard-heading {
+.acard-solid .acard-heading {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
 }
-.acard-cwh .acard-badge {
+.acard-solid .acard-badge {
   flex: none;
   width: 38px; height: 38px;
   border-radius: 10px;
@@ -30,29 +30,29 @@
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 4px 12px rgba(27, 108, 168, .25);
 }
-.acard-cwh .acard-title {
+.acard-solid .acard-title {
   font-size: 15px; font-weight: 700; color: #101a26;
   line-height: 1.3;
 }
-.acard-cwh .acard-sub {
+.acard-solid .acard-sub {
   font-size: 12px; color: #5a6b7d; margin-top: 2px;
   font-family: ui-monospace, "JetBrains Mono", monospace;
 }
-.acard-cwh .acard-views {
+.acard-solid .acard-views {
   display: flex; gap: 6px; padding: 4px;
   background: #f3f6fa; border: 1px solid #d3dde8; border-radius: 11px;
 }
-.acard-cwh .acard-views button {
+.acard-solid .acard-views button {
   appearance: none; border: 0; padding: 6px 12px; border-radius: 8px;
   background: transparent; color: #5a6b7d; font: inherit; font-size: 12.5px;
   font-weight: 600; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s;
 }
-.acard-cwh .acard-views button:hover { color: #1b6ca8; }
-.acard-cwh .acard-views button.active {
+.acard-solid .acard-views button:hover { color: #1b6ca8; }
+.acard-solid .acard-views button.active {
   background: #fff; color: #0f4c7a; box-shadow: 0 1px 4px rgba(16, 26, 38, .12);
 }
 
-.acard-cwh .acard-main {
+.acard-solid .acard-main {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.9fr);
   gap: 14px;
@@ -60,7 +60,7 @@
 }
 
 /* ---------- 3D 舞台 ---------- */
-.acard-cwh .acard-stage {
+.acard-solid .acard-stage {
   position: relative;
   min-height: 360px;
   height: 100%;
@@ -71,24 +71,24 @@
     linear-gradient(165deg, #101a26 0%, #1e3247 100%);
   box-shadow: 0 6px 18px rgba(16, 26, 38, .16), inset 0 0 0 1px rgba(255, 255, 255, .06);
 }
-.acard-cwh .acard-stage canvas { display: block; width: 100%; height: 100%; }
-.acard-cwh .acard-view-label {
+.acard-solid .acard-stage canvas { display: block; width: 100%; height: 100%; }
+.acard-solid .acard-view-label {
   position: absolute; top: 12px; left: 14px;
   color: #dbe8f4; font-size: 12px; letter-spacing: 2px; opacity: .8;
   pointer-events: none;
 }
-.acard-cwh .acard-toggles {
+.acard-solid .acard-toggles {
   position: absolute; right: 12px; bottom: 12px;
   display: flex; flex-direction: column; gap: 4px;
   padding: 8px 11px; border-radius: 10px;
   background: rgba(9, 16, 24, .55); backdrop-filter: blur(3px);
 }
-.acard-cwh .acard-toggles label {
+.acard-solid .acard-toggles label {
   display: flex; align-items: center; gap: 7px;
   color: #cfe0ee; font-size: 11.5px; cursor: pointer; user-select: none;
 }
-.acard-cwh .acard-toggles input { accent-color: #e8892b; margin: 0; }
-.acard-cwh .acard-hint {
+.acard-solid .acard-toggles input { accent-color: #e8892b; margin: 0; }
+.acard-solid .acard-hint {
   position: absolute; left: 14px; bottom: 12px;
   padding: 5px 10px; border-radius: 8px;
   background: rgba(9, 16, 24, .55); color: #c9d8e6; font-size: 11px;
@@ -96,60 +96,60 @@
 }
 
 /* ---------- 右侧答案面板 ---------- */
-.acard-cwh .acard-panel {
+.acard-solid .acard-panel {
   display: flex; flex-direction: column; gap: 10px;
   min-width: 0; padding: 12px;
   background: #fff; border: 1px solid #d3dde8; border-radius: 12px;
   overflow: auto; max-height: 430px;
 }
-.acard-cwh .acard-panel-title {
+.acard-solid .acard-panel-title {
   display: flex; align-items: baseline; gap: 8px;
   margin: 0; font-size: 14px; font-weight: 700; color: #101a26;
 }
-.acard-cwh .acard-panel-title span {
+.acard-solid .acard-panel-title span {
   font-size: 11px; font-weight: 600; color: #e0303b; letter-spacing: .5px;
 }
-.acard-cwh .acard-shot {
+.acard-solid .acard-shot {
   flex: 0 0 auto; border: 1px solid #d3dde8; border-radius: 10px; overflow: hidden;
   background: #fff;
 }
-.acard-cwh .acard-shot img { display: block; width: 100%; height: auto; }
-.acard-cwh .acard-caption {
+.acard-solid .acard-shot img { display: block; width: 100%; height: auto; }
+.acard-solid .acard-caption {
   margin: 0; font-size: 11px; color: #5a6b7d; text-align: center; line-height: 1.5;
 }
-.acard-cwh .acard-notes {
+.acard-solid .acard-notes {
   flex: 0 0 auto; margin: 0; padding: 0; list-style: none;
   counter-reset: n; font-size: 12.4px; color: #33475c;
 }
-.acard-cwh .acard-notes li {
+.acard-solid .acard-notes li {
   position: relative; counter-increment: n;
   padding: 0 0 0 22px; margin: 0 0 8px; line-height: 1.6;
 }
-.acard-cwh .acard-notes li::before {
+.acard-solid .acard-notes li::before {
   content: counter(n);
   position: absolute; left: 0; top: 1px;
   width: 16px; height: 16px; border-radius: 50%;
   background: #1b6ca8; color: #fff; font-size: 10.5px; font-weight: 700;
   line-height: 16px; text-align: center;
 }
-.acard-cwh .acard-analysis {
+.acard-solid .acard-analysis {
   border-top: 1px solid #e2e8f0; padding: 10px 14px 12px;
   background: #fbfdff; font-size: 12.5px; color: #3f4756;
 }
-.acard-cwh .acard-analysis summary {
+.acard-solid .acard-analysis summary {
   cursor: pointer; font-weight: 600; color: #1b6ca8; user-select: none;
   font-size: 12.5px;
 }
-.acard-cwh .acard-analysis-body {
+.acard-solid .acard-analysis-body {
   margin-top: 8px; white-space: pre-wrap; line-height: 1.7;
   font-size: 12.5px;
 }
-.acard-cwh .acard-error {
+.acard-solid .acard-error {
   padding: 24px 16px; color: #b91c1c; font-size: 12.5px; text-align: center;
 }
 
 @media (max-width: 1180px) {
-  .acard-cwh .acard-main { grid-template-columns: minmax(0, 1fr); }
-  .acard-cwh .acard-stage { height: 46vh; min-height: 300px; }
-  .acard-cwh .acard-panel { max-height: none; }
+  .acard-solid .acard-main { grid-template-columns: minmax(0, 1fr); }
+  .acard-solid .acard-stage { height: 46vh; min-height: 300px; }
+  .acard-solid .acard-panel { max-height: none; }
 }

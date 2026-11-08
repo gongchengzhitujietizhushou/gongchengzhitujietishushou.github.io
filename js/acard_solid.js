@@ -1,16 +1,17 @@
 // ============================================================
-// js/acard_cylinder_wedge_hole.js
-// 答案卡: 5-2 求作俯视图
+// js/acard_solid.js
+// 共享答案卡构建器: 圆柱 + 楔形孔立体 (3D 场景 + 三视图答案)
 // ------------------------------------------------------------
-// 题型: 轴线水平的圆柱，主视图为矩形 + 三角形孔口，左视图为
-//       圆 + 两条水平虚线弦；圆柱上开有前后贯通的楔形孔，求俯视图。
+// 被 acard_top_view.js / acard_left_view.js / acard_front_view.js
+// 复用。题型按"视图构造任务"区分: 求作俯视图 / 左视图 / 主视图。
 //
-// 输入 JSON:
+// 输入 JSON (三个题型共用):
 //   { "R": 50, "L": 130, "X1": 20, "X2": 104, "A": 40 }
 //   R 圆柱半径, L 圆柱长度, X1 孔尖距左端, X2 孔底距左端, A 孔口半高
 //
-// 卡片内容: three.js 三维场景 (可切轴测/主/左/俯视图) +
-//           Canvas 绘制的三视图答案 + 解题说明。
+// 暴露: ACardSolid.normalize(data), ACardSolid.mountSolidCard(host, data, meta, target)
+//   target ∈ { 'top' | 'left' | 'front' } 决定"所求"是哪个视图。
+//
 // three.js 与 OrbitControls 在首次挂载时按需加载。
 // ============================================================
 'use strict';
@@ -19,6 +20,34 @@
 
   const THREE_URL = 'js/vendor/three.min.js';
   const ORBIT_URL = 'js/vendor/OrbitControls.js';
+
+  // 各"所求"视图的文案 / Render 参数
+  const TARGETS = {
+    top: {
+      view: 'top',
+      title: '求作俯视图',
+      badge: '俯视图',
+      panel: '俯视图 · 答案',
+      known: '主视图、左视图',
+      answer: '俯视图',
+    },
+    left: {
+      view: 'left',
+      title: '求作左视图',
+      badge: '左视图',
+      panel: '左视图 · 答案',
+      known: '主视图、俯视图',
+      answer: '左视图',
+    },
+    front: {
+      view: 'front',
+      title: '求作主视图',
+      badge: '主视图',
+      panel: '主视图 · 答案',
+      known: '左视图、俯视图',
+      answer: '主视图',
+    },
+  };
 
   // ---------- three.js 懒加载 ----------
   let threePromise = null;
@@ -92,7 +121,7 @@
         },
         left: { circle: [0, 0, d.R], R: d.R, center: [0, 0], A: d.A },
       },
-      problem_type: 'cylinder_wedge_hole',
+      problem_type: 'solid_wedge_hole',
       confidence: 0.9,
     };
   }
@@ -569,8 +598,9 @@
     };
   }
 
-  // ---------- 挂载 ----------
-  function mount(host, data, meta) {
+  // ---------- 挂载 (target: 'top' | 'left' | 'front') ----------
+  function mountSolidCard(host, data, meta, target) {
+    const tgt = TARGETS[target] || TARGETS.top;
     const d = normalize(data);
     if (!d) {
       host.textContent = '答案卡数据无效：需要 R / L / X1 / X2 / A。';
@@ -581,20 +611,22 @@
     const result = Solver.solve(solverParams(d));
 
     const root = document.createElement('div');
-    root.className = 'acard acard-cwh';
+    root.className = 'acard acard-solid';
     root.innerHTML = TEMPLATE;
     host.appendChild(root);
 
-    fillText(root, '.acard-title', meta.title || '5-2 求作俯视图');
+    fillText(root, '.acard-title', meta.title || tgt.title);
     fillText(root, '.acard-sub',
       'R=' + fmt(d.R) + ' · L=' + fmt(d.L) + ' · X1=' + fmt(d.X1) +
       ' · X2=' + fmt(d.X2) + ' · A=' + fmt(d.A));
+    fillText(root, '.acard-panel-title', tgt.panel + ' 【所求】');
+    fillText(root, '.acard-caption', tgt.known + ' 为已知（灰蓝）；' + tgt.answer + ' 为所求（黑、加粗）。');
 
-    // 答案图 (Canvas 2D 三视图)
+    // 答案图 (Canvas 2D 三视图, answerView 高亮所求视图)
     const shotImg = root.querySelector('.acard-shot img');
     try {
       const canvas = document.createElement('canvas');
-      Render.render(result, canvas, {});
+      Render.render(result, canvas, { answerView: tgt.view });
       shotImg.src = canvas.toDataURL('image/png');
     } catch (e) {
       const shot = root.querySelector('.acard-shot');
@@ -650,20 +682,15 @@
     };
   }
 
-  const DEF = {
-    id: 'cylinder_wedge_hole',
-    title: '5-2 求作俯视图',
-    description: '轴线水平的圆柱，主视图为矩形内一个三角形孔口，左视图为圆内两条水平虚线弦；圆柱上开有前后贯通的楔形孔，求俯视图。',
-    dataSchema: '{"R":圆柱半径,"L":圆柱长度,"X1":三角形尖点距左端距离,"X2":孔底平面距左端距离,"A":孔口半高}；建议同一比例并令 R=100，须满足 0<X1<X2<L、0<A<R。',
+  const API = {
     normalize: normalize,
-    mount: mount,
+    mountSolidCard: mountSolidCard,
+    targets: TARGETS,
   };
 
-  if (typeof AnswerCards !== 'undefined') {
-    AnswerCards.register('cylinder_wedge_hole', DEF);
-  }
+  if (typeof window !== 'undefined') window.ACardSolid = API;
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { normalize: normalize, mount: mount, DEF: DEF };
+    module.exports = API;
   }
 })();

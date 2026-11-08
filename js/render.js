@@ -116,33 +116,38 @@ const Render = (() => {
     const tx = (x) => (x - xmin) * scale;
     const ty = (y) => (ymax - y) * scale;
 
-    // ---- 主视图 (已知)
-    const front = result.views.front || [];
-    drawPrims(ctx, front, false, tx, ty);
+    // ---- 三个视图 (哪个是"所求"由 opts.answerView 决定, 默认 top)
+    const answerView = (opts && opts.answerView) || 'top';
     const cenSt = STYLE.cen;
+    function isAns(v) { return v === answerView; }
+
+    // ---- 主视图
+    const front = result.views.front || [];
+    drawPrims(ctx, front, isAns('front'), tx, ty);
     applyStyle(ctx, cenSt);
     ctx.beginPath(); ctx.moveTo(tx(-12), ty(R)); ctx.lineTo(tx(L + 12), ty(R)); ctx.stroke();
 
-    // ---- 左视图 (已知)
+    // ---- 左视图
     const left = result.views.left || [];
     for (const p of left) {
       if (p.type === 'circle') {
-        applyStyle(ctx, STYLE.given);
+        applyStyle(ctx, isAns('left') ? STYLE.visAns : STYLE.given);
         ctx.beginPath();
         ctx.arc(tx(LVX), ty(LVY), p.r * scale, 0, 2 * Math.PI);
         ctx.stroke();
       } else {
         const [x1, y1] = p.a, [x2, y2] = p.b;
-        hidSeg(ctx, tx(LVX + x1), ty(LVY + y1), tx(LVX + x2), ty(LVY + y2), STYLE.givenH);
+        hidSeg(ctx, tx(LVX + x1), ty(LVY + y1), tx(LVX + x2), ty(LVY + y2),
+          isAns('left') ? STYLE.hidAns : STYLE.givenH);
       }
     }
     applyStyle(ctx, cenSt);
     ctx.beginPath(); ctx.moveTo(tx(LVX - R - 12), ty(LVY)); ctx.lineTo(tx(LVX + R + 12), ty(LVY)); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(tx(LVX), ty(LVY - R - 12)); ctx.lineTo(tx(LVX), ty(LVY + R + 12)); ctx.stroke();
 
-    // ---- 俯视图 (答案)
+    // ---- 俯视图
     const top = result.views.top || [];
-    drawPrims(ctx, top, true, tx, ty);
+    drawPrims(ctx, top, isAns('top'), tx, ty);
     applyStyle(ctx, cenSt);
     ctx.beginPath(); ctx.moveTo(tx(-12), ty(TVY)); ctx.lineTo(tx(L + 12), ty(TVY)); ctx.stroke();
 
@@ -150,10 +155,21 @@ const Render = (() => {
     const fs = scale * 0.30;
     label(ctx, tx(0), ty(2 * R + 1.05 * R), '工程制图 · 求解结果', fs * 1.7, 'bold', '#101010', 'left');
     label(ctx, tx(0), ty(2 * R + 0.85 * R), '黑色加粗部分为所求视图', fs * 0.95, 'normal', '#4a5563', 'left');
-    label(ctx, tx(L / 2), ty(2 * R + 0.45 * R), '主视图', fs * 1.05, 'bold', '#4a5563');
-    label(ctx, tx(LVX), ty(2 * R + 0.45 * R), '左视图', fs * 1.05, 'bold', '#4a5563');
-    label(ctx, tx(0), ty(TVY + R + 0.30 * R), '俯视图', fs * 1.15, 'bold', '#1b4f80', 'left');
-    label(ctx, tx(L + 0.22 * R), ty(TVY + R + 0.30 * R), '【所求 · 答案】', fs, 'bold', '#c0392b', 'left');
+
+    const viewLabels = [
+      { name: 'front', x: tx(L / 2), y: ty(2 * R + 0.45 * R), text: '主视图', color: '#4a5563', align: 'center', size: 1.05 },
+      { name: 'left',  x: tx(LVX),   y: ty(2 * R + 0.45 * R), text: '左视图', color: '#4a5563', align: 'center', size: 1.05 },
+      { name: 'top',   x: tx(0),     y: ty(TVY + R + 0.30 * R), text: '俯视图', color: '#1b4f80', align: 'left', size: 1.15 },
+    ];
+    for (const v of viewLabels) {
+      label(ctx, v.x, v.y, v.text, fs * v.size, 'bold', v.color, v.align);
+      if (v.name === answerView) {
+        const offX = (v.align === 'left')
+          ? (fs * v.size * v.text.length + fs * 0.5)
+          : (fs * v.size * v.text.length * 0.55 + fs * 0.6);
+        label(ctx, v.x + offX, v.y, '【所求 · 答案】', fs, 'bold', '#c0392b', 'left');
+      }
+    }
 
     // 图例
     const lx = -m * 0.4, ly = TVY - R - 0.42 * R;

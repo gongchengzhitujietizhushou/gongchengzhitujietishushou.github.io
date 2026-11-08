@@ -296,7 +296,10 @@ const LLM = (() => {
   // 兼容旧调用: 把 LLM 结构化结果转成 Solver 需要的 params。
   // 新架构下答案卡直接使用 res.data, 此函数仅用于兼容 / 测试。
   function toParams(res) {
-    if (!res || res.category !== 'cylinder_wedge_hole') return null;
+    if (!res) return null;
+    const cat = String(res.category || '');
+    if (cat !== 'top_view' && cat !== 'left_view' && cat !== 'front_view' &&
+        cat !== 'cylinder_wedge_hole') return null;
     const g = res.data || res.geometry;
     if (!g) return null;
     const R = num(g.R, 0), L = num(g.L, 0), X1 = num(g.X1, NaN), X2 = num(g.X2, NaN), A = num(g.A, 0);
