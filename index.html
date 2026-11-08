@@ -1,5 +1,177 @@
-<html>
-  <body>
-    <p>test</p>
-  </body>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工程制图解题助手</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📐</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 广告位 (顶部, 可配置) -->
+    <div class="ad-slot" id="ad-slot"></div>
+
+    <div class="layout">
+      <!-- 侧边栏 -->
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="icon">📐</span>
+          <div>
+            <div class="title">工程制图解题助手</div>
+            <div class="sub">纯前端 · 浏览器本地运行</div>
+          </div>
+        </div>
+
+        <button class="new-btn" @click="messages = [{role:'bot', text:'请上传工程图图片开始解题。', time:Date.now()}]">
+          ＋ 新建解题
+        </button>
+
+        <div class="history-label">历史记录</div>
+        <div class="history">
+          <div v-if="!history.length" class="hist-empty">暂无记录</div>
+          <div v-for="item in history" :key="item.id"
+               class="history-item" :class="{active: item.id===activeId}"
+               @click="openHistory(item)">
+            <div class="meta">
+              <div class="t">{{ item.fileName }}</div>
+              <div class="d">{{ fmtTime(item.time) }}</div>
+              <div class="d" v-if="item.summary">{{ item.summary }}</div>
+            </div>
+            <span class="st" :class="item.problemType==='cylinder_wedge_hole' ? 'st-solved' : 'st-failed'">
+              {{ item.problemType==='cylinder_wedge_hole' ? '已解' : '未识别' }}
+            </span>
+            <button class="hist-del" @click="deleteHistory(item, $event)" title="删除">✕</button>
+          </div>
+        </div>
+
+        <div class="sidebar-foot">
+          <button class="ghost-btn" @click="clearAllHistory">清空历史</button>
+          <button class="ghost-btn" @click="openSettings">⚙ 设置</button>
+        </div>
+      </aside>
+
+      <!-- 主区 -->
+      <main class="main">
+        <div class="topbar">
+          <div>
+            <div class="q-title">圆柱上开通前后贯通的楔形孔 · 求作俯视图</div>
+            <div class="q-sub">识别主视图(矩形+三角孔口)与左视图(圆+虚线弦) → 求解"束腰"俯视图</div>
+          </div>
+          <div class="right">
+            <span class="chip">纯前端</span>
+            <span class="chip">无登录</span>
+          </div>
+        </div>
+
+        <div class="chat" ref="chatEl">
+          <!-- 空态 -->
+          <div v-if="!messages.length" class="empty-state">
+            <div class="icon">🖊️</div>
+            <h2>上传工程图, 自动解题</h2>
+            <p>支持 PNG / JPG。若图片为 GIMP 的 XCF 格式, 请先在 GIMP 中"导出为 PNG"再上传。</p>
+          </div>
+
+          <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
+            <div class="bubble-avatar">{{ m.role === 'user' ? '👤' : '🤖' }}</div>
+            <div class="body">
+              <div class="bubble">
+                <!-- 用户原图 -->
+                <template v-if="m.role==='user' && m.imageUrl">
+                  <img class="msg-img" :src="m.imageUrl" :alt="m.fileName">
+                  <div class="caption" v-if="m.fileName">{{ m.fileName }}</div>
+                </template>
+                <!-- 机器人文本 -->
+                <template v-if="m.text && m.role==='bot'">
+                  <div style="white-space:pre-wrap">{{ m.text }}</div>
+                </template>
+                <!-- 处理中 -->
+                <div v-if="m.processing" class="typing"><span></span><span></span><span></span></div>
+                <!-- 答案图 -->
+                <template v-if="m.answerUrl">
+                  <img class="answer-img" :src="m.answerUrl" alt="俯视图答案">
+                  <div class="caption" v-if="m.caption">{{ m.caption }}</div>
+                  <!-- 参数 -->
+                  <div class="params-strip" v-if="m.params">
+                    <span v-for="(p, j) in m.params" :key="j" class="p">{{ p[0] }}={{ p[1] }}</span>
+                  </div>
+                  <!-- 说明 -->
+                  <ol class="exp" v-if="m.explanation">
+                    <li v-for="(e, k) in m.explanation" :key="k" :data-n="k+1">{{ e }}</li>
+                  </ol>
+                </template>
+                <!-- 错误 -->
+                <div v-if="m.error" class="err">{{ m.error }}</div>
+              </div>
+              <div class="time" v-if="!m.processing">{{ fmtTime(m.time) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 输入区 -->
+        <div class="composer">
+          <div class="inner">
+            <div class="drop" :class="{drag: dragOver, picked: !!pendingFile}"
+                 @click="fileInput.click()"
+                 @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+                 @drop.prevent="onDrop">
+              <template v-if="!pendingFile">
+                <span>📎</span> 点击选择或拖入图片 (PNG/JPG)
+              </template>
+              <template v-else>
+                <span>🖼️</span> <span class="fname">{{ pendingFile.name }}</span>
+                <span class="x" @click.stop="clearFile">✕</span>
+              </template>
+            </div>
+            <input ref="fileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp" style="display:none"
+                   @change="onFilePicked">
+            <div class="row">
+              <input type="text" v-model="inputText" placeholder="输入文字提问 (预留 LLM 问答)..."
+                     @keydown.enter="send" :disabled="processing">
+              <button class="send-btn" @click="send" :disabled="processing || (!pendingFile && !inputText.trim())">
+                {{ processing ? '识别中…' : '发送' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div class="modal-mask" v-if="showSettings" @click.self="showSettings=false">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>⚙ 设置</h3>
+          <button class="modal-x" @click="showSettings=false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>LLM API Key (预留, 未来文字问答用)</label>
+            <input type="password" v-model="settings.llmKey" placeholder="sk-...">
+          </div>
+          <div class="field">
+            <label>LLM 模型 (预留)</label>
+            <input type="text" v-model="settings.llmModel" placeholder="例如 deepseek-chat">
+          </div>
+          <div class="field">
+            <label>广告代码 (HTML, 显示于页面顶部)</label>
+            <textarea v-model="settings.adCode" rows="3" placeholder="<script>… adsbygoogle …</script> 或图片/链接"></textarea>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost-btn" @click="showSettings=false">取消</button>
+          <button class="btn-primary" @click="saveSettings">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 脚本: Vue 先加载, 再加载应用逻辑 -->
+  <script src="js/vendor/vue.global.prod.js"></script>
+  <script src="js/vision.js"></script>
+  <script src="js/solver.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/app.js"></script>
+</body>
 </html>

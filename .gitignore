@@ -1,0 +1,14 @@
+# 运行时
+*.log
+.marscode/
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# 临时
+*.rgba
+test_*.js
+test.html
