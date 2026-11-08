@@ -62,6 +62,89 @@
     };
   }
 
+  // ---------- 三维边线模型 (标准第三角投影 -> 三视图) ----------
+  // 返回 3D 边线数组, 每条 e = { kind, pts:[[x,y,z],...], views?:{front?,left?,top?} }。
+  // 坐标约定: x 沿轴线 [0,L], y 竖直, z 深度 (楔形孔沿 z 贯通)。
+  // 标准投影: 主视图沿 -Z 看 -> (x,y); 左视图沿 +X 看 -> (z,y); 俯视图沿 -Y 看 -> (x,z)。
+  // 经 ACardBase.project3dToViews(edges3d(params)) 得到的 views 与 Solver.solve 的三视图完全一致。
+  function edges3d(d) {
+    const R = d.R, L = d.L, X1 = d.X1, X2 = d.X2, A = d.A;
+    const K = A / (X2 - X1);
+    const W = Math.sqrt(Math.max(R * R - A * A, 0));
+    const edges = [];
+    const ext = 12;   // 中心线伸出量
+    const NS = 64;    // 圆弧采样
+
+    function yslot(x) { return K * (x - X1); }
+    function halfW(x) {
+      const y = yslot(x);
+      return Math.sqrt(Math.max(R * R - y * y, 0));
+    }
+
+    // 端面圆 (yz 平面, x 固定, 逆时针)
+    function circleAt(x) {
+      const pts = [];
+      for (let i = 0; i <= NS; i++) {
+        const t = i / NS * Math.PI * 2;
+        pts.push([x, R * Math.sin(t), R * Math.cos(t)]);
+      }
+      return pts;
+    }
+
+    // 1) 左右端面圆: 主/俯视投影为竖直线段, 左视投影为圆 (近端 x=L 可见)
+    edges.push({ kind: 'visible', pts: circleAt(0), views: { front: 'visible', top: 'visible' } });
+    edges.push({ kind: 'visible', pts: circleAt(L), views: { front: 'visible', top: 'visible', left: 'visible' } });
+
+    // 2) 主视图轮廓: 圆柱前后素线 y=±R
+    edges.push({ kind: 'visible', pts: [[0, R, 0], [L, R, 0]], views: { front: 'visible' } });
+    edges.push({ kind: 'visible', pts: [[0, -R, 0], [L, -R, 0]], views: { front: 'visible' } });
+
+    // 3) 俯视图轮廓: 圆柱左右素线 z=±R, 被束腰分成两段
+    for (const zc of [R, -R]) {
+      if (X1 > 1e-6) edges.push({ kind: 'visible', pts: [[0, 0, zc], [X1, 0, zc]], views: { top: 'visible' } });
+      if (X2 < L - 1e-6) edges.push({ kind: 'visible', pts: [[X2, 0, zc], [L, 0, zc]], views: { top: 'visible' } });
+    }
+
+    // 4) 束腰: 斜平面(上/下)∩圆柱面 椭圆弧, 主/俯视可见
+    for (const sy of [1, -1]) {
+      for (const sz of [1, -1]) {
+        const pts = [];
+        for (let i = 0; i <= 60; i++) {
+          const x = X1 + (X2 - X1) * i / 60;
+          pts.push([x, sy * yslot(x), sz * halfW(x)]);
+        }
+        edges.push({ kind: 'visible', pts: pts, views: { front: 'visible', top: 'visible' } });
+      }
+    }
+
+    // 5) 孔底平面∩圆柱面 圆弧 (x=X2): 主视投影为三角形底边, 俯视投影为 |z|∈[W,R] 竖直线段
+    for (const sz of [1, -1]) {
+      const pts = [];
+      for (let i = 0; i <= 60; i++) {
+        const y = -A + 2 * A * i / 60;
+        pts.push([X2, y, sz * Math.sqrt(Math.max(R * R - y * y, 0))]);
+      }
+      edges.push({ kind: 'visible', pts: pts, views: { front: 'visible', top: 'visible' } });
+    }
+
+    // 6) 孔底平面上下棱边 (弦 y=±A, x=X2): 左视/俯视均不可见虚线
+    for (const sy of [1, -1]) {
+      edges.push({ kind: 'hidden', pts: [[X2, sy * A, -W], [X2, sy * A, W]], views: { left: 'hidden', top: 'hidden' } });
+    }
+
+    // 7) 孔尖 (x=X1, y=0, 沿 z 贯穿): 俯视不可见虚线
+    edges.push({ kind: 'hidden', pts: [[X1, 0, -R], [X1, 0, R]], views: { top: 'hidden' } });
+
+    // 8) 轴线中心线 (主视图 y=0, 俯视图 z=0)
+    edges.push({ kind: 'center', pts: [[-ext, 0, 0], [L + ext, 0, 0]], views: { front: 'center', top: 'center' } });
+
+    // 9) 左视图十字中心线
+    edges.push({ kind: 'center', pts: [[0, 0, -R - ext], [0, 0, R + ext]], views: { left: 'center' } });
+    edges.push({ kind: 'center', pts: [[0, -R - ext, 0], [0, R + ext, 0]], views: { left: 'center' } });
+
+    return edges;
+  }
+
   // ---------- 三维场景 ----------
   function build(THREE, stage, d) {
     const R = d.R, L = d.L, X1 = d.X1, X2 = d.X2, A = d.A;
@@ -502,6 +585,7 @@
     ],
     build: build,
     answer: answer,
+    edges3d: edges3d,
   };
 
   if (typeof ACardBase !== 'undefined' && ACardBase.registerSolid) {

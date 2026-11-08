@@ -161,6 +161,39 @@
   };
 
   // ============================================================
+  // 三、三维场景 -> 三视图投影 (标准第三角投影)
+  // ============================================================
+  // 立体的 3D 边线 (edges3d) 按标准投影方向投到三个视图:
+  //   主视图 front: 沿 -Z 看 -> (x, y)
+  //   左视图 left : 沿 +X 看 -> (z, y)
+  //   俯视图 top  : 沿 -Y 看 -> (x, z)
+  // 每条 3D 边 e = { kind:'visible'|'hidden'|'center', pts:[[x,y,z],...],
+  //                 views?: { front?, left?, top? } }   // 指定该边出现在哪些视图及各自线型
+  // 返回 { front:[prims], left:[prims], top:[prims] }。
+  const PROJ3D = {
+    front: function (p) { return [p[0], p[1]]; },
+    left:  function (p) { return [p[2], p[1]]; },
+    top:   function (p) { return [p[0], p[2]]; },
+  };
+
+  function project3dToViews(edges) {
+    const views = { front: [], left: [], top: [] };
+    (Array.isArray(edges) ? edges : []).forEach(function (e) {
+      const eViews = (e.views && typeof e.views === 'object') ? e.views : null;
+      const kind = e.kind || 'visible';
+      ['front', 'left', 'top'].forEach(function (v) {
+        // 指定 views 时, 只有列出的视图绘制; 否则默认所有视图
+        const vKind = eViews ? eViews[v] : kind;
+        if (!vKind) return;
+        const pts = (e.pts || []).map(PROJ3D[v]);
+        if (!pts.length) return;
+        views[v].push({ type: 'poly', kind: vKind, pts: pts });
+      });
+    });
+    return views;
+  }
+
+  // ============================================================
   // 三、通用答案卡
   // ============================================================
 
@@ -241,13 +274,25 @@
     let views = (answer.views && typeof answer.views === 'object') ? answer.views : null;
     let labels = (answer.labels && typeof answer.labels === 'object') ? answer.labels : null;
     let dims = Array.isArray(answer.dims) ? answer.dims : null;
+
+    // 结果图坐标: 优先使用调用方给定的 answer.views;
+    // 否则由标准三维边线模型投影 (solid.edges3d -> project3dToViews);
+    // 最后回退到 solid.answer(params).views。
+    if (!views && typeof solid.edges3d === 'function') {
+      views = project3dToViews(solid.edges3d(normParams));
+    }
     if (!views && typeof solid.answer === 'function') {
       const ans = solid.answer(normParams) || {};
       views = ans.views || null;
+    }
+    if (!views) return null;
+
+    // labels / dims: 优先 data.answer, 否则来自 solid.answer(params)
+    if ((!labels || !dims) && typeof solid.answer === 'function') {
+      const ans = solid.answer(normParams) || {};
       labels = labels || ans.labels || null;
       dims = dims || ans.dims || null;
     }
-    if (!views) return null;
 
     // 不内嵌 solid (函数), 仅返回可 JSON 序列化的字段, 挂载时按 solidName 重新取。
     return { params: normParams, solidName: solidName, view: view, views: views, labels: labels, dims: dims };
@@ -342,6 +387,8 @@
     normalize: normalize,
     mountCard: mountCard,
     viewMeta: VIEW_META,
+    // 标准第三角投影
+    project3dToViews: project3dToViews,
   };
 
   if (typeof window !== 'undefined') window.ACardBase = API;
