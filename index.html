@@ -118,7 +118,7 @@
             <input ref="fileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp" style="display:none"
                    @change="onFilePicked">
             <div class="row">
-              <input type="text" v-model="inputText" placeholder="输入文字提问 (预留 LLM 问答)..."
+              <input type="text" v-model="inputText" placeholder="输入文字提问（需先配置 LLM）..."
                      @keydown.enter="send" :disabled="processing">
               <button class="send-btn" @click="send" :disabled="processing || (!pendingFile && !inputText.trim())">
                 {{ processing ? '识别中…' : '发送' }}
@@ -140,7 +140,6 @@
           <div class="field">
             <label>LLM 模型</label>
             <select v-model="settings.llmModel">
-              <option value="">（不使用 LLM，仅本地识别）</option>
               <optgroup v-for="g in llmModels" :key="g.group" :label="g.group">
                 <option v-for="m in g.items" :key="m" :value="m">{{ m }}</option>
               </optgroup>

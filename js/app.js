@@ -20,7 +20,10 @@
       const history = ref([]);
       const activeId = ref(null);
       const showSettings = ref(false);
-      const settings = reactive({ llmKey: '', llmModel: '', llmModelCustom: '', llmBaseUrl: '', llmService: 'openai' });
+      const settings = reactive({
+        llmKey: '', llmModel: LLM.DEFAULT_MODEL, llmModelCustom: '',
+        llmBaseUrl: '', llmService: 'openai',
+      });
       const llmModels = LLM.MODELS;
       const chatEl = ref(null);
       const fileInput = ref(null);
@@ -98,7 +101,7 @@
           llmKey: (settings.llmKey || '').trim(),
           llmModel: settings.llmModel === '__custom__'
             ? (settings.llmModelCustom || '').trim()
-            : (settings.llmModel || '').trim(),
+            : ((settings.llmModel || '').trim() || LLM.DEFAULT_MODEL),
           llmBaseUrl: (settings.llmBaseUrl || '').trim(),
           llmService: settings.llmService || 'openai',
         };
@@ -353,7 +356,9 @@
       }
 
       // ---------- 设置 ----------
-      function openSettings() {
+      // 把 localStorage 中的设置载入响应式状态 (页面加载时也要执行，
+      // 否则不打开设置弹窗直接提问会用不到已保存的配置)
+      function applySavedSettings() {
         const s = Storage.getSettings();
         settings.llmKey = s.llmKey || '';
         settings.llmBaseUrl = s.llmBaseUrl || '';
@@ -363,9 +368,13 @@
           settings.llmModel = '__custom__';
           settings.llmModelCustom = model;
         } else {
-          settings.llmModel = model;
+          settings.llmModel = model || LLM.DEFAULT_MODEL;
           settings.llmModelCustom = '';
         }
+      }
+
+      function openSettings() {
+        applySavedSettings();
         showSettings.value = true;
       }
       function saveSettings() {
@@ -377,6 +386,16 @@
           llmService: conf.llmService,
         });
         showSettings.value = false;
+        // 如果还停留在初始欢迎语，保存配置后同步更新提示
+        if (messages.value.length === 1 && messages.value[0].role === 'bot') {
+          messages.value[0].text = greetingText(LLM.isConfigured(conf));
+        }
+      }
+
+      function greetingText(configured) {
+        return configured
+          ? '你好! 我是"工程制图解题助手"。\n\n请上传一张工程图图片 (PNG/JPG)，系统会先用视觉模型理解图纸，再用几何算法求解并渲染；也可以直接输入文字提问。'
+          : '你好! 我是"工程制图解题助手"。\n\n尚未配置 LLM。请先点击右上角「⚙ 设置」选择模型并填写 API Key。\n\n未配置时只能使用本地识别（仅支持部分内置题型）；配置后可分析更多题型，并支持文字问答。';
       }
 
       function scrollBottom() {
@@ -387,10 +406,11 @@
 
       // ---------- 挂载 ----------
       onMounted(async () => {
+        applySavedSettings();
         await refreshHistory();
         messages.value = [{
           role: 'bot',
-          text: '你好! 我是"工程制图解题助手"。\n\n请上传一张工程图图片 (PNG/JPG), 系统会先用视觉模型理解图纸，再用几何算法求解并渲染。\n\n未配置 LLM 时使用本地识别，可解部分内置题型；在"设置"中选择模型并填写 API Key 后可分析更多题型。',
+          text: greetingText(LLM.isConfigured(llmSettings())),
           time: Date.now(),
         }];
       });

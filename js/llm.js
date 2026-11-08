@@ -36,6 +36,8 @@ const LLM = (() => {
       items: ['deepseek-chat', 'deepseek-reasoner'] },
   ];
 
+  const DEFAULT_MODEL = MODELS[0].items[0];
+
   function findModel(model) {
     for (const g of MODELS) {
       if (g.items.indexOf(model) >= 0) return g;
@@ -288,7 +290,10 @@ const LLM = (() => {
     return chat(sys, question, dataUrl || null, settings, 1200);
   }
 
-  return { MODELS, isKnownModel, providerFor, resolveConfig, isConfigured, analyzeDrawing, toParams, ask, chat };
+  return {
+    MODELS, DEFAULT_MODEL, isKnownModel, providerFor, resolveConfig, isConfigured,
+    analyzeDrawing, toParams, ask, chat,
+  };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = LLM;
