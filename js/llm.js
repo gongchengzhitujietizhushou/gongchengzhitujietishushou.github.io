@@ -300,7 +300,8 @@ const LLM = (() => {
     const cat = String(res.category || '');
     if (cat !== 'top_view' && cat !== 'left_view' && cat !== 'front_view' &&
         cat !== 'cylinder_wedge_hole') return null;
-    const g = res.data || res.geometry;
+    // 新格式 data.params; 兼容旧格式 data.R / geometry
+    const g = (res.data && res.data.params) || res.data || res.geometry;
     if (!g) return null;
     const R = num(g.R, 0), L = num(g.L, 0), X1 = num(g.X1, NaN), X2 = num(g.X2, NaN), A = num(g.A, 0);
     if (!(R > 0 && L > 0 && A > 0 && X2 > X1 && X1 >= 0 && X2 <= L * 1.01 && A < R)) return null;

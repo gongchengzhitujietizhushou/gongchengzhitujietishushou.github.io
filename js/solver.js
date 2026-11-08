@@ -117,6 +117,8 @@ const Solver = (() => {
     prims.push({ type: 'line', a: [X2, -W], b: [X2, W], kind: 'hidden', width: 1.5 });
     // 孔尖 (不可见)
     prims.push({ type: 'line', a: [X1, -R], b: [X1, R], kind: 'hidden', width: 1.5 });
+    // 中心线 (俯视图: 轴线 z=0)
+    prims.push({ type: 'line', a: [-12, 0], b: [L + 12, 0], kind: 'center', width: 0.95 });
     return prims;
   }
 
@@ -132,6 +134,8 @@ const Solver = (() => {
     for (let i = 0; i < 3; i++) {
       prims.push({ type: 'line', a: tri[i], b: tri[(i + 1) % 3], kind: 'visible', width: 2.0 });
     }
+    // 中心线 (主视图: 轴线 y=0)
+    prims.push({ type: 'line', a: [-12, 0], b: [L + 12, 0], kind: 'center', width: 0.95 });
     return prims;
   }
 
@@ -142,6 +146,9 @@ const Solver = (() => {
     for (const s of [1, -1]) {
       prims.push({ type: 'line', a: [-W, s * A], b: [W, s * A], kind: 'hidden', width: 1.4 });
     }
+    // 中心线 (左视图: 十字)
+    prims.push({ type: 'line', a: [-R - 12, 0], b: [R + 12, 0], kind: 'center', width: 0.95 });
+    prims.push({ type: 'line', a: [0, -R - 12], b: [0, R + 12], kind: 'center', width: 0.95 });
     return prims;
   }
 

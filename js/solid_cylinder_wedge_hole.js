@@ -1,0 +1,514 @@
+// ============================================================
+// js/solid_cylinder_wedge_hole.js
+// 立体: 圆柱 + 前后贯通楔形孔 (solid: cylinder_wedge_hole)
+// ------------------------------------------------------------
+// 向 ACardBase 注册一个立体构建器:
+//   normalizeParams(params)  校验 { R, L, X1, X2, A }
+//   build(THREE, stage, params) -> { destroy }   三维场景
+//   answer(params) -> { views, labels, dims }    结果图坐标
+// 主视图为矩形 + 三角形孔口; 左视图为圆 + 两条虚线弦。
+// ============================================================
+'use strict';
+
+(function () {
+
+  function num(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function normalizeParams(params) {
+    if (!params || typeof params !== 'object') return null;
+    const R = num(params.R), L = num(params.L);
+    const X1 = num(params.X1), X2 = num(params.X2), A = num(params.A);
+    if (!(R > 0 && L > 0 && A > 0 && A < R)) return null;
+    if (!(X1 >= 0 && X2 > X1 && X2 <= L * 1.0001)) return null;
+    return { R: R, L: L, X1: X1, X2: X2, A: A };
+  }
+
+  function solverParams(d) {
+    return {
+      views: {
+        front: {
+          rect: [0, 0, d.L, 2 * d.R], L: d.L, H: 2 * d.R,
+          X1: d.X1, X2: d.X2, A: d.A, center_y: d.R,
+        },
+        left: { circle: [0, 0, d.R], R: d.R, center: [0, 0], A: d.A },
+      },
+      problem_type: 'cylinder_wedge_hole',
+      confidence: 0.9,
+    };
+  }
+
+  // ---------- 结果图坐标 ----------
+  function answer(params) {
+    const d = params;
+    const result = Solver.solve(solverParams(d));
+    const R = d.R, L = d.L, X1 = d.X1, X2 = d.X2, A = d.A, W = Math.sqrt(R * R - A * A);
+    return {
+      view: 'top',
+      views: {
+        front: result.views.front || [],
+        left: result.views.left || [],
+        top: result.views.top || [],
+      },
+      labels: { front: '主视图', left: '左视图', top: '俯视图' },
+      dims: [
+        'D=2R=' + (2 * R).toFixed(0),
+        'L=' + L.toFixed(0),
+        '孔口 2A=' + (2 * A).toFixed(0),
+        '孔底弦 2W=' + (2 * W).toFixed(0) + ' = 2√(R²−A²)',
+      ],
+    };
+  }
+
+  // ---------- 三维场景 ----------
+  function build(THREE, stage, d) {
+    const R = d.R, L = d.L, X1 = d.X1, X2 = d.X2, A = d.A;
+    const K = A / (X2 - X1);
+    const X0 = -L / 2;
+
+    function yslot(m) { return Math.min(A, Math.max(0, K * (m - X1))); }
+    function ymax(m) { return (m <= X1 || m >= X2) ? 0 : yslot(m); }
+    function halfW(m) {
+      const y = yslot(m);
+      return Math.sqrt(Math.max(0, R * R - y * y));
+    }
+
+    const scene = new THREE.Scene();
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
+    stage.appendChild(renderer.domElement);
+
+    const cams = {};
+    const ctl = {};
+    let current = 'iso';
+
+    cams.persp = new THREE.PerspectiveCamera(32, 1, 1, 40000);
+    cams.persp.position.set(158, 112, 170);
+    cams.persp.lookAt(0, 0, 0);
+
+    cams.ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 40000);
+    cams.ortho.lookAt(0, 0, 0);
+
+    // 光照
+    scene.add(new THREE.HemisphereLight(0xdfefff, 0x0e1a26, 0.62));
+
+    const key = new THREE.DirectionalLight(0xffffff, 0.72);
+    key.position.set(190, 250, 170);
+    scene.add(key);
+
+    const fill = new THREE.DirectionalLight(0x8fb8ff, 0.34);
+    fill.position.set(-210, 60, -160);
+    scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xffe0bd, 0.28);
+    rim.position.set(-60, -180, 120);
+    scene.add(rim);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    // ---------- 造面工具 ----------
+    function Surface() {
+      this.pos = [];
+      this.nor = [];
+    }
+
+    Surface.prototype.add = function (fn, fnN, nu, nv) {
+      const P = [], N = [];
+      let i, j, u, v;
+
+      for (i = 0; i <= nu; i++) {
+        P[i] = []; N[i] = [];
+        for (j = 0; j <= nv; j++) {
+          u = i / nu; v = j / nv;
+          P[i][j] = fn(u, v);
+          N[i][j] = fnN(u, v).normalize();
+        }
+      }
+
+      const i0 = Math.floor(nu / 2), j0 = Math.floor(nv / 2);
+      const e1 = new THREE.Vector3().subVectors(P[i0 + 1][j0], P[i0][j0]);
+      const e2 = new THREE.Vector3().subVectors(P[i0][j0 + 1], P[i0][j0]);
+      const g = new THREE.Vector3().crossVectors(e1, e2);
+      const flip = g.dot(N[i0][j0]) < 0;
+
+      const self = this;
+
+      function tri(a, na, b, nb, c, nc) {
+        if (flip) {
+          const t = b; b = c; c = t;
+          const tn = nb; nb = nc; nc = tn;
+        }
+        self.pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+        self.nor.push(na.x, na.y, na.z, nb.x, nb.y, nb.z, nc.x, nc.y, nc.z);
+      }
+
+      for (i = 0; i < nu; i++) {
+        for (j = 0; j < nv; j++) {
+          const p00 = P[i][j], p10 = P[i + 1][j];
+          const p01 = P[i][j + 1], p11 = P[i + 1][j + 1];
+          const n00 = N[i][j], n10 = N[i + 1][j];
+          const n01 = N[i][j + 1], n11 = N[i + 1][j + 1];
+          tri(p00, n00, p10, n10, p11, n11);
+          tri(p00, n00, p11, n11, p01, n01);
+        }
+      }
+    };
+
+    Surface.prototype.geometry = function () {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+      return g;
+    };
+
+    // ---------- 造立体 ----------
+    const so = new Surface();    // 外表面
+    const si = new Surface();    // 孔内表面
+    const V = THREE.Vector3;
+
+    function lateral(m0, m1, bottom, nu) {
+      return {
+        fn: function (u, v) {
+          const m = m0 + (m1 - m0) * u;
+          const p0 = Math.asin(Math.min(1, Math.max(-1, ymax(m) / R)));
+          let phi = p0 + v * (Math.PI - 2 * p0);
+          if (bottom) phi += Math.PI;
+          return new V(m + X0, R * Math.sin(phi), R * Math.cos(phi));
+        },
+        nfn: function (u, v) {
+          const m = m0 + (m1 - m0) * u;
+          const p0 = Math.asin(Math.min(1, Math.max(-1, ymax(m) / R)));
+          let phi = p0 + v * (Math.PI - 2 * p0);
+          if (bottom) phi += Math.PI;
+          return new V(0, Math.sin(phi), Math.cos(phi));
+        },
+      };
+    }
+
+    [[0, X1], [X1, X2], [X2, L]].forEach(function (seg) {
+      [false, true].forEach(function (bottom) {
+        const p = lateral(seg[0], seg[1], bottom);
+        const nu = Math.max(12, Math.round((seg[1] - seg[0]) * 1.8 / Math.max(1, R / 50)));
+        so.add(p.fn, p.nfn, nu, 64);
+      });
+    });
+
+    // 孔上面 (斜平面)
+    si.add(
+      function (u, v) {
+        const m = X1 + u * (X2 - X1), w = halfW(m);
+        return new V(m + X0, ymax(m), -w + 2 * w * v);
+      },
+      function () { return new V(K, -1, 0); },
+      24, 24
+    );
+
+    // 孔下面
+    si.add(
+      function (u, v) {
+        const m = X1 + u * (X2 - X1), w = halfW(m);
+        return new V(m + X0, -ymax(m), -w + 2 * w * v);
+      },
+      function () { return new V(K, 1, 0); },
+      24, 24
+    );
+
+    // 孔底平面
+    si.add(
+      function (u, v) {
+        const y = -A + 2 * A * u, w = Math.sqrt(Math.max(0, R * R - y * y));
+        return new V(X2 + X0, y, -w + 2 * w * v);
+      },
+      function () { return new V(-1, 0, 0); },
+      32, 32
+    );
+
+    // 左右端面
+    so.add(
+      function (u, v) {
+        const r = u * R, t = v * Math.PI * 2;
+        return new V(X0, r * Math.sin(t), r * Math.cos(t));
+      },
+      function () { return new V(-1, 0, 0); },
+      10, 120
+    );
+    so.add(
+      function (u, v) {
+        const r = u * R, t = v * Math.PI * 2;
+        return new V(L + X0, r * Math.sin(t), r * Math.cos(t));
+      },
+      function () { return new V(1, 0, 0); },
+      10, 120
+    );
+
+    const solidMat = new THREE.MeshStandardMaterial({
+      color: 0x8fbadd, metalness: 0.12, roughness: 0.44, side: THREE.FrontSide,
+    });
+    const innerMat = new THREE.MeshStandardMaterial({
+      color: 0x3f6685, metalness: 0.08, roughness: 0.72, side: THREE.FrontSide,
+    });
+
+    root.add(new THREE.Mesh(so.geometry(), solidMat));
+    root.add(new THREE.Mesh(si.geometry(), innerMat));
+
+    // ---------- 交线 / 棱线 ----------
+    const markGroup = new THREE.Group();
+    root.add(markGroup);
+
+    const markMat = new THREE.MeshBasicMaterial({ color: 0xff9a3c });
+    const tubeR = Math.max(0.3, Math.min(1.6, R * 0.011));
+
+    function tube(points, closed) {
+      const curve = new THREE.CatmullRomCurve3(points, closed, 'catmullrom', 0);
+      const geo = new THREE.TubeGeometry(curve, Math.max(64, points.length), tubeR, 8, closed);
+      markGroup.add(new THREE.Mesh(geo, markMat));
+    }
+
+    // 孔口四条椭圆弧
+    const N = 90;
+    [1, -1].forEach(function (sy) {
+      [1, -1].forEach(function (sz) {
+        const pts = [];
+        for (let i = 0; i <= N; i++) {
+          const m = X1 + (X2 - X1) * i / N;
+          pts.push(new V(m + X0, sy * ymax(m), sz * halfW(m)));
+        }
+        tube(pts, false);
+      });
+    });
+
+    // 楔形孔尖
+    tube([new V(X1 + X0, 0, -R), new V(X1 + X0, 0, 0), new V(X1 + X0, 0, R)], false);
+
+    // 孔底平面轮廓
+    const wallPts = [];
+    const NW = 40;
+    const hw2 = halfW(X2);
+    let i2;
+    for (i2 = 0; i2 <= NW; i2++) {
+      wallPts.push(new V(X2 + X0, A, -hw2 + 2 * hw2 * i2 / NW));
+    }
+    for (i2 = 0; i2 <= NW; i2++) {
+      const yy = A - 2 * A * i2 / NW;
+      wallPts.push(new V(X2 + X0, yy, Math.sqrt(Math.max(0, R * R - yy * yy))));
+    }
+    for (i2 = 0; i2 <= NW; i2++) {
+      wallPts.push(new V(X2 + X0, -A, hw2 - 2 * hw2 * i2 / NW));
+    }
+    for (i2 = 0; i2 <= NW; i2++) {
+      const yy2 = -A + 2 * A * i2 / NW;
+      wallPts.push(new V(X2 + X0, yy2, -Math.sqrt(Math.max(0, R * R - yy2 * yy2))));
+    }
+    tube(wallPts, true);
+
+    // ---------- 相机 / 视图 ----------
+    const span = Math.max(L, 2 * R);
+    const camDist = span * 4 + 1000;
+
+    const VIEWS = {
+      iso:   { cam: 'persp', label: '轴测 (自由旋转)' },
+      front: { cam: 'ortho', pos: [0, 0, camDist], up: [0, 1, 0], label: '主视图方向 (沿 -Z 看)' },
+      left:  { cam: 'ortho', pos: [-camDist, 0, 0], up: [0, 1, 0], label: '左视图方向 (沿 +X 看)' },
+      top:   { cam: 'ortho', pos: [0, camDist, 0], up: [0, 0, -1], label: '俯视图方向 (沿 -Y 看)' },
+    };
+
+    function mkControls(cam) {
+      const c = new THREE.OrbitControls(cam, renderer.domElement);
+      c.enableDamping = true;
+      c.dampingFactor = 0.08;
+      c.rotateSpeed = 0.85;
+      c.zoomSpeed = 0.9;
+      c.minDistance = span * 0.3;
+      c.maxDistance = span * 6;
+      c.target.set(0, 0, 0);
+      c.enabled = false;
+      return c;
+    }
+
+    ctl.persp = mkControls(cams.persp);
+    ctl.ortho = mkControls(cams.ortho);
+
+    function fitOrtho() {
+      const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+      const aspect = w / h;
+      const hFit = Math.max(2 * R * 1.22, (L * 1.18) / aspect);
+      cams.ortho.left = -hFit * aspect / 2;
+      cams.ortho.right = hFit * aspect / 2;
+      cams.ortho.top = hFit / 2;
+      cams.ortho.bottom = -hFit / 2;
+      cams.ortho.updateProjectionMatrix();
+    }
+
+    const FIT_R = Math.sqrt((L / 2) * (L / 2) + R * R + R * R) * 1.03;
+
+    function fitPersp(keepDir) {
+      const aspect = cams.persp.aspect || 1;
+      const vfov = cams.persp.fov * Math.PI / 180;
+      const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+      const dist = FIT_R / Math.sin(Math.min(vfov, hfov) / 2) * 1.12;
+      const dir = keepDir && cams.persp.position.lengthSq() > 0
+        ? cams.persp.position.clone().normalize()
+        : new THREE.Vector3(0.6, 0.52, 0.61).normalize();
+      cams.persp.position.copy(dir.multiplyScalar(dist));
+      cams.persp.lookAt(0, 0, 0);
+    }
+
+    const cardRoot = stage.closest('.acard') || document;
+    const labelEl = stage.querySelector('.acard-view-label');
+    const viewButtons = Array.prototype.slice.call(cardRoot.querySelectorAll('.acard-views button'));
+
+    function setView(name) {
+      const v = VIEWS[name] || VIEWS.iso;
+      current = VIEWS[name] ? name : 'iso';
+
+      if (v.cam === 'ortho') {
+        fitOrtho();
+        cams.ortho.up.set(v.up[0], v.up[1], v.up[2]);
+        cams.ortho.position.set(v.pos[0], v.pos[1], v.pos[2]);
+        cams.ortho.zoom = 1;
+        cams.ortho.lookAt(0, 0, 0);
+        cams.ortho.updateProjectionMatrix();
+        ctl.ortho.target.set(0, 0, 0);
+        ctl.ortho.update();
+      } else {
+        cams.persp.up.set(0, 1, 0);
+        fitPersp();
+        ctl.persp.target.set(0, 0, 0);
+        ctl.persp.update();
+      }
+
+      ctl.persp.enabled = (v.cam === 'persp');
+      ctl.ortho.enabled = (v.cam === 'ortho');
+      draw();
+
+      if (labelEl) labelEl.textContent = v.label;
+      viewButtons.forEach(function (b) {
+        b.classList.toggle('active', b.dataset.view === current);
+      });
+    }
+
+    function draw() {
+      renderer.render(scene, (VIEWS[current] && VIEWS[current].cam === 'ortho') ? cams.ortho : cams.persp);
+    }
+
+    let autoSpin = false;
+    let alive = true;
+    let raf = 0;
+    const clock = new THREE.Clock();
+
+    function loop() {
+      if (!alive) return;
+      raf = requestAnimationFrame(loop);
+      const dt = clock.getDelta();
+
+      if (autoSpin) {
+        const c = (VIEWS[current] && VIEWS[current].cam === 'ortho') ? cams.ortho : cams.persp;
+        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dt * 0.55);
+        c.position.applyQuaternion(q);
+        c.lookAt(0, 0, 0);
+      }
+
+      (ctl.persp.enabled ? ctl.persp : ctl.ortho).update();
+      draw();
+    }
+
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      cams.persp.aspect = w / h;
+      cams.persp.updateProjectionMatrix();
+      fitOrtho();
+      if (!current || current === 'iso') fitPersp(true);
+      draw();
+    }
+
+    // ---------- 交互 ----------
+    const bindings = [];
+    viewButtons.forEach(function (b) {
+      const fn = function () { setView(b.dataset.view); };
+      b.addEventListener('click', fn);
+      bindings.push([b, 'click', fn]);
+    });
+
+    const edgeBox = stage.querySelector('[data-toggle="edges"]');
+    const wireBox = stage.querySelector('[data-toggle="wire"]');
+    const spinBox = stage.querySelector('[data-toggle="spin"]');
+
+    function onEdges(e) { markGroup.visible = e.target.checked; draw(); }
+    function onWire(e) {
+      solidMat.wireframe = e.target.checked;
+      innerMat.wireframe = e.target.checked;
+      solidMat.needsUpdate = true;
+      innerMat.needsUpdate = true;
+      draw();
+    }
+    function onSpin(e) { autoSpin = e.target.checked; }
+
+    if (edgeBox) { edgeBox.addEventListener('change', onEdges); bindings.push([edgeBox, 'change', onEdges]); }
+    if (wireBox) { wireBox.addEventListener('change', onWire); bindings.push([wireBox, 'change', onWire]); }
+    if (spinBox) { spinBox.addEventListener('change', onSpin); bindings.push([spinBox, 'change', onSpin]); }
+
+    ctl.persp.addEventListener('change', draw);
+    ctl.ortho.addEventListener('change', draw);
+
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(function () { resize(); });
+      ro.observe(stage);
+    }
+    window.addEventListener('resize', resize);
+
+    resize();
+    setView('iso');
+    loop();
+    requestAnimationFrame(resize);
+
+    return {
+      destroy: function () {
+        alive = false;
+        if (raf) cancelAnimationFrame(raf);
+        if (ro) { try { ro.disconnect(); } catch (e) { /* ignore */ } }
+        window.removeEventListener('resize', resize);
+        bindings.forEach(function (b) { b[0].removeEventListener(b[1], b[2]); });
+        Object.keys(ctl).forEach(function (k) {
+          if (ctl[k] && typeof ctl[k].dispose === 'function') {
+            try { ctl[k].dispose(); } catch (e) { /* ignore */ }
+          }
+        });
+        try { renderer.dispose(); } catch (e) { /* ignore */ }
+        if (renderer.domElement && renderer.domElement.parentNode) {
+          renderer.domElement.parentNode.removeChild(renderer.domElement);
+        }
+      },
+    };
+  }
+
+  const DEF = {
+    name: 'cylinder_wedge_hole',
+    title: function () { return '圆柱 + 楔形孔立体'; },
+    normalizeParams: normalizeParams,
+    paramFields: [
+      { key: 'R', label: '圆柱半径' },
+      { key: 'L', label: '圆柱长度' },
+      { key: 'X1', label: '孔尖距左端' },
+      { key: 'X2', label: '孔底距左端' },
+      { key: 'A', label: '孔口半高' },
+    ],
+    build: build,
+    answer: answer,
+  };
+
+  if (typeof ACardBase !== 'undefined' && ACardBase.registerSolid) {
+    ACardBase.registerSolid(DEF.name, DEF);
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = DEF;
+  }
+})();

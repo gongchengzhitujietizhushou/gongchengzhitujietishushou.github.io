@@ -176,7 +176,12 @@
         const X2 = Number(f.X2);
         const A = Number(f.A != null ? f.A : l.A);
         if (!(R > 0 && L > 0)) return null;
-        return AnswerCards.normalize('top_view', { R, L, X1, X2, A });
+        // 通用答案卡数据: params + scene(3D) + answer(结果图)
+        return AnswerCards.normalize('top_view', {
+          params: { R: R, L: L, X1: X1, X2: X2, A: A },
+          scene: { solid: 'cylinder_wedge_hole' },
+          answer: { view: 'top' },
+        });
       }
 
       // 把答案卡数据写到 botMsg
@@ -285,9 +290,11 @@
           // 5) 记录历史 (原图 + 结果一起存, 回看时无需重新请求 LLM)
           const problemType = botMsg.type || (botMsg.card ? botMsg.card.category : 'other');
           const cardData = botMsg.card && botMsg.card.data;
-          const summary = cardData
-            ? 'R=' + cardData.R.toFixed(0) + ' L=' + cardData.L.toFixed(0) +
-              ' A=' + cardData.A.toFixed(0)
+          const cp = (cardData && cardData.params) || null;
+          const summary = cp
+            ? (cp.R != null ? 'R=' + cp.R.toFixed(0) + ' ' : '') +
+              (cp.L != null ? 'L=' + cp.L.toFixed(0) + ' ' : '') +
+              (cp.A != null ? 'A=' + cp.A.toFixed(0) : '')
             : String(((llmRes && (llmRes.title || llmRes.text)) ||
                 (botMsg.text || ''))).slice(0, 80);
           const entry = await Storage.addHistory({

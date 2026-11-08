@@ -1,7 +1,17 @@
 // ============================================================
 // js/render.js
-// 工程制图解题助手 —— 答案图渲染 (Canvas 2D 移植自 core/renderer.py)
-// 绘制 主视图 + 左视图 (已知, 灰蓝) 与 俯视图 (所求, 黑色加粗)
+// 工程制图解题助手 —— 答案图渲染 (Canvas 2D, 通用/数据驱动)
+// ------------------------------------------------------------
+// 输入 result = {
+//   view: 'top' | 'left' | 'front',          // 所求视图 (也可由 opts.answerView 指定)
+//   views: { front:[prims], left:[prims], top:[prims] },   // 各视图图元(各自局部坐标)
+//   labels?: { front, left, top },           // 视图名 (默认 主视图/左视图/俯视图)
+//   title?, subtitle?, dims?: [string]       // 标题 / 副标题 / 尺寸标注
+// }
+// prim = { type:'line'|'poly'|'circle', kind:'visible'|'hidden'|'center',
+//          a:[x,y]|b:[x,y] 或 pts:[[x,y]..] 或 c:[x,y], r }
+// 布局: 主视图(前) 左上, 左视图 右上(同行), 俯视图 下 (第三角投影), 自动缩放。
+// "所求"视图以黑/加粗绘制并标【所求 · 答案】。
 // ============================================================
 'use strict';
 
@@ -19,6 +29,7 @@ const Render = (() => {
   };
 
   function styleFor(kind, answer) {
+    if (kind === 'center') return STYLE.cen;
     if (kind === 'hidden') return answer ? STYLE.hidAns : STYLE.givenH;
     return answer ? STYLE.visAns : STYLE.given;
   }
@@ -55,27 +66,6 @@ const Render = (() => {
     ctx.setLineDash([]);
   }
 
-  // 不可见线段 (实线 + 端点短刺)
-  function hidSeg(ctx, x0, y0, x1, y1, st, tick) {
-    tick = tick || 1.2;
-    applyStyle(ctx, st);
-    ctx.beginPath();
-    ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const dx = x1 - x0, dy = y1 - y0;
-    const len = Math.hypot(dx, dy);
-    if (len <= 0) return;
-    const ux = dx / len, uy = dy / len;
-    ctx.strokeStyle = st.color;
-    ctx.lineWidth = st.width;
-    ctx.beginPath();
-    ctx.moveTo(x0, y0); ctx.lineTo(x0 + ux * tick, y0 + uy * tick);
-    ctx.moveTo(x1 - ux * tick, y1 - uy * tick); ctx.lineTo(x1, y1);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
   function label(ctx, x, y, s, size, weight, color, ha) {
     ctx.fillStyle = color || '#101010';
     ctx.font = `${weight || 'bold'} ${size}px "Noto Sans CJK SC", "Source Han Sans CN", sans-serif`;
@@ -84,25 +74,70 @@ const Render = (() => {
     ctx.fillText(s, x, y);
   }
 
-  // 主渲染: 把 result (solver 输出) 画到 canvas
+  // 图元包围盒 (局部数据坐标)
+  function viewBBox(prims) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of (prims || [])) {
+      if (p.type === 'circle') {
+        const cx = p.c[0], cy = p.c[1], r = p.r;
+        minX = Math.min(minX, cx - r); maxX = Math.max(maxX, cx + r);
+        minY = Math.min(minY, cy - r); maxY = Math.max(maxY, cy + r);
+      } else if (p.type === 'line') {
+        minX = Math.min(minX, p.a[0], p.b[0]); maxX = Math.max(maxX, p.a[0], p.b[0]);
+        minY = Math.min(minY, p.a[1], p.b[1]); maxY = Math.max(maxY, p.a[1], p.b[1]);
+      } else if (p.type === 'poly') {
+        for (const pt of p.pts) {
+          minX = Math.min(minX, pt[0]); maxX = Math.max(maxX, pt[0]);
+          minY = Math.min(minY, pt[1]); maxY = Math.max(maxY, pt[1]);
+        }
+      }
+    }
+    if (!Number.isFinite(minX)) { minX = 0; maxX = 1; minY = 0; maxY = 1; }
+    return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
+  }
+
+  // 主渲染: 把通用 answer 描述画到 canvas
   function render(result, canvas, opts) {
     opts = opts || {};
-    const geo = result.geometry;
-    const R = geo.R, L = geo.L;
-    const X1 = geo.X1, X2 = geo.X2, A = geo.A, W = geo.W;
+    const views = (result && result.views) || {};
+    const answerView = opts.answerView || (result && result.view) || 'top';
+    const labels = (result && result.labels) ||
+      { front: '主视图', left: '左视图', top: '俯视图' };
+    const title = (result && result.title) || '工程制图 · 求解结果';
+    const subtitle = (result && result.subtitle) || '黑色加粗部分为所求视图';
+    const dims = (result && Array.isArray(result.dims)) ? result.dims : [];
 
-    const GAP_LR = 0.55 * R;
-    const GAP_TB = 0.85 * R;
-    const OCX = 0, OCY = 0;
-    const LVX = L + GAP_LR + R, LVY = R;
-    const TVY = -(GAP_TB + R);
+    const names = ['front', 'left', 'top'];
+    const boxes = {};
+    for (const n of names) boxes[n] = viewBBox(views[n]);
 
-    // 数据范围
-    const m = 0.9 * R;
-    const xmin = -m, xmax = LVX + R + m;
-    const ymin = TVY - R - 1.05 * R, ymax = 2 * R + 1.2 * R;
+    // 第三角布局: front 左上, left 右上(同行), top 下
+    const unit = Math.max(boxes.front.w, boxes.front.h, boxes.left.w, boxes.left.h,
+      boxes.top.w, boxes.top.h, 1);
+    const GAP = 0.5 * unit;
+    const f = boxes.front, l = boxes.left, t = boxes.top;
+    const off = {
+      front: { x: 0, y: 0 },
+      left:  { x: f.maxX + GAP - l.minX, y: (f.minY + f.maxY) / 2 - (l.minY + l.maxY) / 2 },
+      top:   { x: (f.minX + f.maxX) / 2 - (t.minX + t.maxX) / 2, y: f.minY - GAP - t.maxY },
+    };
 
-    // 画布尺寸: 自动缩放使输出宽度约 760px (可被 opts.scale 覆盖)
+    function placed(b, o) {
+      return { minX: b.minX + o.x, maxX: b.maxX + o.x, minY: b.minY + o.y, maxY: b.maxY + o.y };
+    }
+    const all = [placed(f, off.front), placed(l, off.left), placed(t, off.top)];
+    let gminX = Math.min.apply(null, all.map(b => b.minX));
+    let gmaxX = Math.max.apply(null, all.map(b => b.maxX));
+    let gminY = Math.min.apply(null, all.map(b => b.minY));
+    let gmaxY = Math.max.apply(null, all.map(b => b.maxY));
+
+    // 留出标题/视图名/图例空间
+    const padX = 0.5 * unit;
+    const padTop = 0.95 * unit;
+    const padBottom = 1.05 * unit;
+    const xmin = gminX - padX, xmax = gmaxX + padX;
+    const ymin = gminY - padBottom, ymax = gmaxY + padTop;
+
     const rangeX = xmax - xmin, rangeY = ymax - ymin;
     const scale = opts.scale || (760 / rangeX);
     const cw = Math.ceil(rangeX * scale);
@@ -112,84 +147,52 @@ const Render = (() => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, cw, ch);
 
-    // 数据->像素 (y 翻转)
     const tx = (x) => (x - xmin) * scale;
     const ty = (y) => (ymax - y) * scale;
+    const fs = scale * unit * 0.11;
 
-    // ---- 三个视图 (哪个是"所求"由 opts.answerView 决定, 默认 top)
-    const answerView = (opts && opts.answerView) || 'top';
-    const cenSt = STYLE.cen;
-    function isAns(v) { return v === answerView; }
-
-    // ---- 主视图
-    const front = result.views.front || [];
-    drawPrims(ctx, front, isAns('front'), tx, ty);
-    applyStyle(ctx, cenSt);
-    ctx.beginPath(); ctx.moveTo(tx(-12), ty(R)); ctx.lineTo(tx(L + 12), ty(R)); ctx.stroke();
-
-    // ---- 左视图
-    const left = result.views.left || [];
-    for (const p of left) {
-      if (p.type === 'circle') {
-        applyStyle(ctx, isAns('left') ? STYLE.visAns : STYLE.given);
-        ctx.beginPath();
-        ctx.arc(tx(LVX), ty(LVY), p.r * scale, 0, 2 * Math.PI);
-        ctx.stroke();
-      } else {
-        const [x1, y1] = p.a, [x2, y2] = p.b;
-        hidSeg(ctx, tx(LVX + x1), ty(LVY + y1), tx(LVX + x2), ty(LVY + y2),
-          isAns('left') ? STYLE.hidAns : STYLE.givenH);
-      }
+    // ---- 三个视图
+    for (const n of names) {
+      const o = off[n];
+      const tvx = (x) => tx(x + o.x);
+      const tvy = (y) => ty(y + o.y);
+      drawPrims(ctx, views[n] || [], n === answerView, tvx, tvy);
     }
-    applyStyle(ctx, cenSt);
-    ctx.beginPath(); ctx.moveTo(tx(LVX - R - 12), ty(LVY)); ctx.lineTo(tx(LVX + R + 12), ty(LVY)); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(tx(LVX), ty(LVY - R - 12)); ctx.lineTo(tx(LVX), ty(LVY + R + 12)); ctx.stroke();
 
-    // ---- 俯视图
-    const top = result.views.top || [];
-    drawPrims(ctx, top, isAns('top'), tx, ty);
-    applyStyle(ctx, cenSt);
-    ctx.beginPath(); ctx.moveTo(tx(-12), ty(TVY)); ctx.lineTo(tx(L + 12), ty(TVY)); ctx.stroke();
+    // ---- 标题 / 副标题
+    const titleX = tx(xmin + 0.05 * unit);
+    label(ctx, titleX, ty(ymax - 0.28 * unit), title, fs * 1.7, 'bold', '#101010', 'left');
+    label(ctx, titleX, ty(ymax - 0.62 * unit), subtitle, fs * 0.95, 'normal', '#4a5563', 'left');
 
-    // ---- 标注
-    const fs = scale * 0.30;
-    label(ctx, tx(0), ty(2 * R + 1.05 * R), '工程制图 · 求解结果', fs * 1.7, 'bold', '#101010', 'left');
-    label(ctx, tx(0), ty(2 * R + 0.85 * R), '黑色加粗部分为所求视图', fs * 0.95, 'normal', '#4a5563', 'left');
-
-    const viewLabels = [
-      { name: 'front', x: tx(L / 2), y: ty(2 * R + 0.45 * R), text: '主视图', color: '#4a5563', align: 'center', size: 1.05 },
-      { name: 'left',  x: tx(LVX),   y: ty(2 * R + 0.45 * R), text: '左视图', color: '#4a5563', align: 'center', size: 1.05 },
-      { name: 'top',   x: tx(0),     y: ty(TVY + R + 0.30 * R), text: '俯视图', color: '#1b4f80', align: 'left', size: 1.15 },
-    ];
-    for (const v of viewLabels) {
-      label(ctx, v.x, v.y, v.text, fs * v.size, 'bold', v.color, v.align);
-      if (v.name === answerView) {
-        const offX = (v.align === 'left')
-          ? (fs * v.size * v.text.length + fs * 0.5)
-          : (fs * v.size * v.text.length * 0.55 + fs * 0.6);
-        label(ctx, v.x + offX, v.y, '【所求 · 答案】', fs, 'bold', '#c0392b', 'left');
+    // ---- 视图名 (置于各视图下方) + 所求标记
+    for (const n of names) {
+      const b = placed(boxes[n], off[n]);
+      const cx = tx((b.minX + b.maxX) / 2);
+      const cy = ty(b.minY - 0.24 * unit);
+      const isAns = (n === answerView);
+      label(ctx, cx, cy, labels[n] || n, fs * 1.05, 'bold', isAns ? '#c0392b' : '#4a5563');
+      if (isAns) {
+        label(ctx, cx + (fs * 1.05 * (labels[n] || n).length * 0.55 + fs * 0.6), cy,
+          '【所求 · 答案】', fs, 'bold', '#c0392b', 'left');
       }
     }
 
-    // 图例
-    const lx = -m * 0.4, ly = TVY - R - 0.42 * R;
-    const legY = ty(ly);
+    // ---- 图例 + 尺寸
+    const legY = ty(gminY - 0.42 * unit);
+    const legX = tx(xmin + 0.05 * unit);
     const segW = 24;
-    // 可见
     applyStyle(ctx, STYLE.vis);
-    ctx.beginPath(); ctx.moveTo(tx(lx), legY); ctx.lineTo(tx(lx) + segW, legY); ctx.stroke();
-    label(ctx, tx(lx) + segW + 6, legY, '可见轮廓线', fs * 0.85, 'normal', '#101010', 'left');
-    // 不可见
+    ctx.beginPath(); ctx.moveTo(legX, legY); ctx.lineTo(legX + segW, legY); ctx.stroke();
+    label(ctx, legX + segW + 6, legY, '可见轮廓线', fs * 0.85, 'normal', '#101010', 'left');
     applyStyle(ctx, STYLE.hid);
-    ctx.beginPath(); ctx.moveTo(tx(lx + 2.4 * R), legY); ctx.lineTo(tx(lx + 2.4 * R) + segW, legY); ctx.stroke();
-    label(ctx, tx(lx + 2.4 * R) + segW + 6, legY, '不可见轮廓线', fs * 0.85, 'normal', '#101010', 'left');
-    // 中心线
+    ctx.beginPath(); ctx.moveTo(legX + segW * 4.2, legY); ctx.lineTo(legX + segW * 5.2, legY); ctx.stroke();
+    label(ctx, legX + segW * 5.2 + 6, legY, '不可见轮廓线', fs * 0.85, 'normal', '#101010', 'left');
     applyStyle(ctx, STYLE.cen);
-    ctx.beginPath(); ctx.moveTo(tx(lx), ty(ly - 0.35 * R)); ctx.lineTo(tx(lx) + segW, ty(ly - 0.35 * R)); ctx.stroke();
-    label(ctx, tx(lx) + segW + 6, ty(ly - 0.35 * R), '中心线', fs * 0.85, 'normal', '#101010', 'left');
-    label(ctx, tx(lx + 2.4 * R) + segW + 6, ty(ly - 0.35 * R),
-          `尺寸: D=2R=${(2 * R).toFixed(0)}  L=${L.toFixed(0)}  孔口高 2A=${(2 * A).toFixed(0)}=${(2 * A / R).toFixed(2)}D  孔底弦长 2W=${(2 * W).toFixed(0)}=${(2 * W / R).toFixed(2)}D = 2√(R²−A²)`,
-          fs * 0.85, 'normal', '#4a5563', 'left');
+    ctx.beginPath(); ctx.moveTo(legX, ty(gminY - 0.68 * unit)); ctx.lineTo(legX + segW, ty(gminY - 0.68 * unit)); ctx.stroke();
+    label(ctx, legX + segW + 6, ty(gminY - 0.68 * unit), '中心线', fs * 0.85, 'normal', '#101010', 'left');
+    dims.forEach(function (d, i) {
+      label(ctx, legX + segW * 9.4, ty(gminY - (0.42 + 0.26 * i) * unit), d, fs * 0.85, 'normal', '#4a5563', 'left');
+    });
 
     return canvas;
   }
